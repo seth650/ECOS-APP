@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 
-const HEADER_LOGO_URL =
-  "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_EPOXY_TWINS_-_FAVICAON-0be254e6-5c2c-4d83-84be-329c8f3b2916.png";
+const HEADER_LOGO_URL = "/favicon.svg";
 
 // ─── PRIVATE LABEL MAP ───────────────────────────────────────────────────────
 // SurfKoat MCU 85       = EZ Top 85 (ET PL)
@@ -186,6 +185,8 @@ function normalizeUserProfile(raw) {
   if (!p.brand_color_secondary) p.brand_color_secondary = "#e33433";
   if (p.total_pos_value_this_quarter === undefined) p.total_pos_value_this_quarter = 0;
   if (p.total_pos_value_this_year === undefined) p.total_pos_value_this_year = 0;
+  if (!p.billing_last4) p.billing_last4 = "";
+  if (!Array.isArray(p.billing_history)) p.billing_history = [];
   return p;
 }
 
@@ -499,6 +500,7 @@ const SOLID_COLOR_OPTIONS = [
 ];
 
 const FREE_UNLOCKED_SYSTEMS = new Set(["FLK-ID-RES", "FLK-OD-RES", "SC-ID-EZ-CLEAN", "METALLIC-ID"]);
+const FREE_UNLOCKED_FINISHES = new Set(["flake", "solid", "metallic"]);
 
 function getFullLocationSystemKeys(location) {
   if (location === "exterior") return ["FLK-OD-RES"];
@@ -1022,6 +1024,9 @@ export default function App() {
   const [contractorSearchQuery, setContractorSearchQuery] = useState("");
   const [pricingConsoleTab, setPricingConsoleTab] = useState("tier");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [showBillingHistory, setShowBillingHistory] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileDraft, setProfileDraft] = useState({ first_name: "", last_name: "", company_name: "" });
   const recommendedSectionRef = useRef(null);
   const prevSystemFamilyRef = useRef(null);
 
@@ -1196,13 +1201,20 @@ export default function App() {
   }
 
   async function chooseMembershipPlan(planId) {
-    if (!session?.user?.id) return;
+    if (!session?.user?.id) {
+      setPhase("questions");
+      return;
+    }
     if (planId === "tier1") {
       window.alert("Stripe integration coming soon.");
       return;
     }
     const tier = planId === "tier2" ? "tier2" : "free";
-    await updateProfileFields({ membership_tier: tier });
+    try {
+      await updateProfileFields({ membership_tier: tier });
+    } catch (_) {
+      // Keep navigation responsive even if profile write is blocked.
+    }
     setCurrentPlan(membershipTierToPlanTag(tier));
     setPhase("questions");
   }
@@ -1512,6 +1524,11 @@ export default function App() {
     setCurrentPlan(membershipTierToPlanTag(normalized.membership_tier || "free"));
     setContractorPricingTierKey(getEffectiveContractorPricingTierKey(normalized));
     setAssignedPricingTierKey(normalized.assignedPricingTierKey || "msrp");
+    setProfileDraft({
+      first_name: normalized.first_name || "",
+      last_name: normalized.last_name || "",
+      company_name: normalized.company_name || "",
+    });
   }, [userProfile]);
 
   useEffect(() => {
@@ -1747,12 +1764,17 @@ export default function App() {
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
-    setSession(null);
-    setCurrentUser(null);
-    setUserProfile(null);
-    setPhase("questions");
-    reset();
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      setHeaderMenuOpen(false);
+      setSession(null);
+      setCurrentUser(null);
+      setUserProfile(null);
+      setAllProfilesByEmail({});
+      setPhase("questions");
+      reset();
+    }
   }
 
   async function handleFallbackLogout() {
@@ -1761,6 +1783,15 @@ export default function App() {
     } finally {
       window.location.reload();
     }
+  }
+
+  async function handleSaveProfileBasics() {
+    await updateProfileFields({
+      first_name: profileDraft.first_name.trim(),
+      last_name: profileDraft.last_name.trim(),
+      company_name: profileDraft.company_name.trim(),
+    });
+    setIsEditingProfile(false);
   }
 
   function printJobCard(orderRecord) {
@@ -2107,15 +2138,29 @@ export default function App() {
             </div>
             <div style={S.card}>
               <div style={S.optRow}>
-                {finishOptionsForPlan.map((option) => (
-                  <button
-                    key={option.value}
-                    style={S.opt(answers.finish === option.value)}
-                    onClick={() => handleFinishTypeSelect(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                {finishOptionsForPlan.map((option) => {
+                  const isLockedFinish = isFreePlan && !FREE_UNLOCKED_FINISHES.has(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      style={{
+                        ...S.opt(answers.finish === option.value),
+                        opacity: isLockedFinish ? 0.45 : 1,
+                        position: "relative",
+                      }}
+                      onClick={() => {
+                        if (isLockedFinish) {
+                          setPhase("plans");
+                          return;
+                        }
+                        handleFinishTypeSelect(option.value);
+                      }}
+                    >
+                      {option.label}
+                      {isLockedFinish ? " 🔒 Unlock Tier 1" : ""}
+                    </button>
+                  );
+                })}
               </div>
               {finishTypeError && (
                 <div style={{ marginTop: 10, fontSize: 11, color: "#fca5a5" }}>{finishTypeError}</div>
@@ -2745,41 +2790,69 @@ export default function App() {
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 3 }}>
-                  Status:{" "}
-                  {activeUserProfile?.isFgpCustomer ? "FGP tagged" : "Not FGP tagged"} ·{" "}
-                  {activeUserProfile?.contractorPricingApplicationReceived ? "Application received" : "Application missing"} ·{" "}
-                  Assigned {TIERS[activeUserProfile?.assignedPricingTierKey || "msrp"].label}
-                </div>
+                {isCurrentUserPricingMaster && (
+                  <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 3 }}>
+                    Status:{" "}
+                    {activeUserProfile?.isFgpCustomer ? "FGP tagged" : "Not FGP tagged"} ·{" "}
+                    {activeUserProfile?.contractorPricingApplicationReceived ? "Application received" : "Application missing"} ·{" "}
+                    Assigned {TIERS[activeUserProfile?.assignedPricingTierKey || "msrp"].label}
+                  </div>
+                )}
                 <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 6 }}>
-                  ECOS subscription and contractor material pricing are separate: app plans can be upgraded anytime; FGP contractor pricing appears only after manual gate checks and tier assignment.
+                  ECOS subscription and contractor material pricing are separate: app plans can be upgraded anytime; FGP contractor pricing appears only after manual contractor approval from FGP Midwest.
                 </div>
-                <div><span style={{ color: "#9bb2d1" }}>Billing:</span> <span style={{ color: "#ffffff" }}>No live card on file (demo build).</span></div>
-                <div><span style={{ color: "#9bb2d1" }}>Payment method:</span> <span style={{ color: "#ffffff" }}>Not added</span></div>
+                <div><span style={{ color: "#9bb2d1" }}>Billing:</span> <span style={{ color: "#ffffff" }}>Card on file ending in {activeUserProfile?.billing_last4 || "— — — —"}</span></div>
+                <div>
+                  <button type="button" style={S.btnSm} onClick={() => setShowBillingHistory((v) => !v)}>
+                    {showBillingHistory ? "Hide billing history" : "View billing history"}
+                  </button>
+                </div>
+                {showBillingHistory && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: "#9bb2d1", lineHeight: 1.5 }}>
+                    {activeUserProfile?.billing_history?.length
+                      ? activeUserProfile.billing_history.map((b, i) => (
+                          <div key={i}>• {b.date || "—"} · {b.description || "Subscription"} · ${Number(b.amount || 0).toFixed(2)}</div>
+                        ))
+                      : "No previous billing records yet."}
+                  </div>
+                )}
               </div>
-              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                <input
-                  style={S.input}
-                  value={userProfile?.first_name || ""}
-                  onChange={(e) => setUserProfile((p) => ({ ...(p || {}), first_name: e.target.value }))}
-                  onBlur={(e) => updateProfileFields({ first_name: e.target.value })}
-                  placeholder="First name"
-                />
-                <input
-                  style={S.input}
-                  value={userProfile?.last_name || ""}
-                  onChange={(e) => setUserProfile((p) => ({ ...(p || {}), last_name: e.target.value }))}
-                  onBlur={(e) => updateProfileFields({ last_name: e.target.value })}
-                  placeholder="Last name"
-                />
-                <input
-                  style={S.input}
-                  value={userProfile?.company_name || ""}
-                  onChange={(e) => setUserProfile((p) => ({ ...(p || {}), company_name: e.target.value }))}
-                  onBlur={(e) => updateProfileFields({ company_name: e.target.value })}
-                  placeholder="Company name"
-                />
-              </div>
+              {!isEditingProfile ? (
+                <div style={{ marginTop: 10 }}>
+                  <button type="button" style={S.btnSm} onClick={() => setIsEditingProfile(true)}>
+                    Edit profile
+                  </button>
+                </div>
+              ) : (
+                <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                  <input
+                    style={S.input}
+                    value={profileDraft.first_name}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, first_name: e.target.value }))}
+                    placeholder="First name"
+                  />
+                  <input
+                    style={S.input}
+                    value={profileDraft.last_name}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, last_name: e.target.value }))}
+                    placeholder="Last name"
+                  />
+                  <input
+                    style={S.input}
+                    value={profileDraft.company_name}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, company_name: e.target.value }))}
+                    placeholder="Company name"
+                  />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="button" style={S.btnSm} onClick={() => setIsEditingProfile(false)}>
+                      Cancel
+                    </button>
+                    <button type="button" style={S.btn} onClick={handleSaveProfileBasics}>
+                      Save
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div style={S.sectionHead}>Brand Settings</div>
             <div style={S.card}>
