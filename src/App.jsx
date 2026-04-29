@@ -857,6 +857,13 @@ function baseCoatDeviatesFromFlakeRecommendation(colorValue, baseCoatColor) {
   return !recs.includes(baseCoatColor);
 }
 
+function isRenderableSwatchUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  // Local /@fs paths work on localhost only; avoid them on production.
+  if (url.startsWith("/@fs/")) return false;
+  return true;
+}
+
 const SYSTEM_BENCHMARK_SQFT = 500;
 
 function getSystemMaterialBenchmarkPerSqFt(systemKey, tierKey, answers = {}, speed = "slow") {
@@ -1764,26 +1771,20 @@ export default function App() {
   }
 
   async function handleLogout() {
-    try {
-      await supabase.auth.signOut();
-    } finally {
-      setHeaderMenuOpen(false);
-      setSession(null);
-      setCurrentUser(null);
-      setUserProfile(null);
-      setAllProfilesByEmail({});
-      setPhase("questions");
-      reset();
-      window.location.assign("/");
-    }
+    setHeaderMenuOpen(false);
+    setSession(null);
+    setCurrentUser(null);
+    setUserProfile(null);
+    setAllProfilesByEmail({});
+    setPhase("questions");
+    reset();
+    supabase.auth.signOut().catch(() => {});
+    window.location.assign("/");
   }
 
   async function handleFallbackLogout() {
-    try {
-      await supabase.auth.signOut();
-    } finally {
-      window.location.reload();
-    }
+    supabase.auth.signOut().catch(() => {});
+    window.location.reload();
   }
 
   async function handleSaveProfileBasics() {
@@ -2337,7 +2338,13 @@ export default function App() {
                       : "Below are our Stocked Colors"}
                 </div>
                 <div style={S.card}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: activeSystemFamily === "flake" ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr",
+                      gap: 8,
+                    }}
+                  >
                     {visibleColorOptions.map((color) => (
                       <button
                         key={color.value}
@@ -2345,7 +2352,7 @@ export default function App() {
                         onClick={() => answer("color", color.value)}
                       >
                         <div>
-                          {color.swatchUrl && activeSystemFamily === "flake" ? (
+                          {isRenderableSwatchUrl(color.swatchUrl) && activeSystemFamily === "flake" ? (
                             <div
                               style={{
                                 width: "100%",
