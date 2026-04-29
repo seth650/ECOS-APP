@@ -1614,6 +1614,8 @@ export default function App() {
           ? +(combinedTotals.requiredMaterialTierTotal / combinedTotals.totalSqFt).toFixed(2)
           : 0,
     });
+    // Client-side handoff: open the user's email app with prefilled order.
+    openFgOrderEmail(body, subject);
     if (session?.user?.id) {
       const jobs = [...orderJobs, currentJobSnapshot].filter(Boolean).map((j) => ({
         jobNamePo: j.jobNamePo,
@@ -1772,19 +1774,32 @@ export default function App() {
 
   async function handleLogout() {
     setHeaderMenuOpen(false);
-    setSession(null);
-    setCurrentUser(null);
-    setUserProfile(null);
-    setAllProfilesByEmail({});
-    setPhase("questions");
-    reset();
-    supabase.auth.signOut().catch(() => {});
-    window.location.assign("/");
+    try {
+      await Promise.race([
+        supabase.auth.signOut(),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    } finally {
+      // Clear any persisted supabase auth cache to prevent sticky sessions.
+      try {
+        Object.keys(window.localStorage)
+          .filter((k) => k.startsWith("sb-") && k.endsWith("-auth-token"))
+          .forEach((k) => window.localStorage.removeItem(k));
+      } catch (_) {
+        // ignore
+      }
+      setSession(null);
+      setCurrentUser(null);
+      setUserProfile(null);
+      setAllProfilesByEmail({});
+      setPhase("questions");
+      reset();
+      window.location.assign("/");
+    }
   }
 
   async function handleFallbackLogout() {
-    supabase.auth.signOut().catch(() => {});
-    window.location.reload();
+    await handleLogout();
   }
 
   async function handleSaveProfileBasics() {
