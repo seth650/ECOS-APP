@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 const HEADER_LOGO_URL = "/favicon.svg";
-const SUPABASE_SWATCH_BUCKET = "swatches";
+/** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
+const SUPABASE_SWATCH_BUCKET = "Color Swatches";
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
 
 // ─── PRIVATE LABEL MAP ───────────────────────────────────────────────────────
@@ -1666,7 +1667,16 @@ export default function App() {
             if (!family) continue;
 
             const { data } = supabase.storage.from(SUPABASE_SWATCH_BUCKET).getPublicUrl(path);
-            const url = data?.publicUrl || (SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_SWATCH_BUCKET}/${path}` : "");
+            const encodedPath = path
+              .split("/")
+              .filter(Boolean)
+              .map((s) => encodeURIComponent(s))
+              .join("/");
+            const url =
+              data?.publicUrl ||
+              (SUPABASE_URL && encodedPath
+                ? `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(SUPABASE_SWATCH_BUCKET)}/${encodedPath}`
+                : "");
             if (!url) continue;
             if (family === "flake" && mappedFlakeKey) flakeNext[mappedFlakeKey] = url;
             if (family === "metallic" && mappedMetallicKey) metallicNext[mappedMetallicKey] = url;
