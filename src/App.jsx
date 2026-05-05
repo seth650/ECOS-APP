@@ -2682,13 +2682,27 @@ export default function App() {
                                 height: 84,
                                 borderRadius: 6,
                                 border: "1px solid rgba(255,255,255,0.35)",
-                                backgroundImage: `url(${color.swatchUrl})`,
-                                backgroundSize: "cover",
-                                backgroundPosition: "center",
-                                backgroundRepeat: "no-repeat",
+                                overflow: "hidden",
                                 marginBottom: 8,
+                                background: "#0a1830",
                               }}
-                            />
+                            >
+                              <img
+                                alt=""
+                                src={color.swatchUrl}
+                                draggable={false}
+                                style={{
+                                  width: "100%",
+                                  height: "100%",
+                                  objectFit: "cover",
+                                  objectPosition: "center",
+                                  /** Many flake PNGs have extra transparent margin — zoom clips so product fills tile. */
+                                  transform: activeSystemFamily === "flake" ? "scale(1.28)" : "scale(1)",
+                                  transformOrigin: "center center",
+                                  display: "block",
+                                }}
+                              />
+                            </div>
                           ) : (
                             <span
                               style={{
