@@ -1590,13 +1590,34 @@ export default function App() {
     const isRenderableImage = (name = "") => /\.(png|jpe?g|webp|gif|avif|svg)$/i.test(name);
     async function listFolder(path) {
       const { data, error } = await supabase.storage.from(SUPABASE_SWATCH_BUCKET).list(path, { limit: 300 });
-      if (error || !mounted) return [];
+      if (error) {
+        if (mounted) console.warn("[ECOS swatches] list failed:", path || "/", error.message);
+        return [];
+      }
+      if (!mounted) return [];
       return data || [];
+    }
+    /** Folder vs file: Supabase list items often omit `id` on files — do not rely on it. */
+    function hasFilenameExtension(name = "") {
+      return /\.[a-z0-9]{2,8}$/i.test(name);
     }
     function familyFromPath(pathKey, fileKey) {
       if (/metallic/.test(pathKey) || metallicKeys.has(fileKey)) return "metallic";
       if (/solid/.test(pathKey) || solidKeys.has(fileKey)) return "solid";
       if (/flake/.test(pathKey) || flakeKeys.has(fileKey)) return "flake";
+      return null;
+    }
+    /** When folder names omit flake/solid/metallic, infer family from which catalog key matches the filename. */
+    function inferFamilyFromCatalogKeys(fileKey) {
+      const mf = resolveCatalogKey(fileKey, flakeKeys);
+      const mm = resolveCatalogKey(fileKey, metallicKeys);
+      const ms = resolveCatalogKey(fileKey, solidKeys);
+      const hits = [
+        mf ? ["flake", mf] : null,
+        mm ? ["metallic", mm] : null,
+        ms ? ["solid", ms] : null,
+      ].filter(Boolean);
+      if (hits.length === 1) return { family: hits[0][0], mappedKey: hits[0][1] };
       return null;
     }
     async function loadAllSwatches() {
@@ -1607,7 +1628,7 @@ export default function App() {
       const visited = new Set();
       let depth = 0;
 
-      while (queue.length && depth < 3) {
+      while (queue.length && depth < 8) {
         const currentBatch = [...queue];
         queue.length = 0;
         for (const folder of currentBatch) {
@@ -1617,18 +1638,33 @@ export default function App() {
           for (const entry of entries) {
             if (!entry?.name) continue;
             const path = folder ? `${folder}/${entry.name}` : entry.name;
-            if (!entry.id) {
+            const isImageFile = isRenderableImage(entry.name);
+            const looksLikeSubfolder = !hasFilenameExtension(entry.name);
+
+            if (!isImageFile && looksLikeSubfolder) {
               queue.push(path);
               continue;
             }
-            if (!isRenderableImage(entry.name)) continue;
+            if (!isImageFile) continue;
+
             const pathKey = makeSwatchKey(path);
             const fileKey = makeSwatchKey(entry.name);
-            const family = familyFromPath(pathKey, fileKey);
+            let family = familyFromPath(pathKey, fileKey);
+            let mappedFlakeKey = resolveCatalogKey(fileKey, flakeKeys);
+            let mappedMetallicKey = resolveCatalogKey(fileKey, metallicKeys);
+            let mappedSolidKey = resolveCatalogKey(fileKey, solidKeys);
+
+            if (!family) {
+              const inferred = inferFamilyFromCatalogKeys(fileKey);
+              if (inferred) {
+                family = inferred.family;
+                if (family === "flake") mappedFlakeKey = inferred.mappedKey;
+                if (family === "metallic") mappedMetallicKey = inferred.mappedKey;
+                if (family === "solid") mappedSolidKey = inferred.mappedKey;
+              }
+            }
             if (!family) continue;
-            const mappedFlakeKey = resolveCatalogKey(fileKey, flakeKeys);
-            const mappedMetallicKey = resolveCatalogKey(fileKey, metallicKeys);
-            const mappedSolidKey = resolveCatalogKey(fileKey, solidKeys);
+
             const { data } = supabase.storage.from(SUPABASE_SWATCH_BUCKET).getPublicUrl(path);
             const url = data?.publicUrl || (SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_SWATCH_BUCKET}/${path}` : "");
             if (!url) continue;
