@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 const HEADER_LOGO_URL = "/favicon.svg";
+const SUPABASE_SWATCH_BUCKET = "swatches";
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
 
 // ─── PRIVATE LABEL MAP ───────────────────────────────────────────────────────
 // SurfKoat MCU 85       = EZ Top 85 (ET PL)
@@ -427,38 +429,17 @@ const FINISH_OPTIONS = [
   { value: "grind_seal", label: "Grind & Seal" },
 ];
 
-const FLAKE_SWATCH_IMAGE_URLS = {
-  Creekbed:
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_CREEKBED-994270cf-4bd0-41a0-8ab1-0497eb8cf243.png",
-  Yorkshire:
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_YORKSHIRE-20170e2d-3ba8-414c-8f4f-59d4d8884bd2.png",
-  Domino:
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_DOMINO-a00044ec-b747-4cf0-ba3e-44064c3a1254.png",
-  Nightfall:
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_NIGHTFALL-c8141f44-91ba-4eb8-a6c2-56bd62d65944.png",
-  Gravel:
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_GRAVEL-c1fe4375-4c46-43ac-9dcc-f9279b8da464.png",
-  Shoreline:
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_SHORELINE-ceecfb74-6867-4a3f-b400-a3c2845c15d3.png",
-  "Cabin Fever":
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_CABIN_FEVER-4a2bc90c-f0f7-42cf-b5bd-14a09cde38dc.png",
-  "Tidal Wave":
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_TIDAL_WAVE-e7191788-3c77-488f-99b4-cf068504931f.png",
-  Woodland:
-    "/@fs/C:/Users/Seth/.cursor/projects/c-Users-Seth-Desktop-EPOXY-TWINS-ECOS-APP/assets/c__Users_Seth_AppData_Roaming_Cursor_User_workspaceStorage_a7e9510e7bc8b1a1e70d68d67b4c07fc_images_woodland-7fe7a242-fe5f-40d1-af64-0abfa79334ae.png",
-};
-
 const STOCKED_COLORS = [
-  { value: "Creekbed", hex: "#8B7D6B", recommendedBase: "Dover Beige", swatchUrl: FLAKE_SWATCH_IMAGE_URLS.Creekbed },
-  { value: "Yorkshire", hex: "#B9B39F", recommendedBase: "Sable Gray", swatchUrl: FLAKE_SWATCH_IMAGE_URLS.Yorkshire },
-  { value: "Gravel", hex: "#7F8790", recommendedBase: "Medium Gray", swatchUrl: FLAKE_SWATCH_IMAGE_URLS.Gravel },
-  { value: "Domino", hex: "#2D2F33", recommendedBase: "Sable Gray", swatchUrl: FLAKE_SWATCH_IMAGE_URLS.Domino },
-  { value: "Nightfall", hex: "#1E2530", recommendedBase: "Medium Gray", swatchUrl: FLAKE_SWATCH_IMAGE_URLS.Nightfall },
-  { value: "Tidal Wave", hex: "#3A5D76", recommendedBase: "Sable Gray", swatchUrl: FLAKE_SWATCH_IMAGE_URLS["Tidal Wave"] },
-  { value: "Shoreline", hex: "#9FA9B2", recommendedBase: "Dover Beige or Tan", swatchUrl: FLAKE_SWATCH_IMAGE_URLS.Shoreline },
-  { value: "Cabin Fever", hex: "#6B5A48", recommendedBase: "Sable Gray", swatchUrl: FLAKE_SWATCH_IMAGE_URLS["Cabin Fever"] },
-  { value: "Woodland", hex: "#4B5A46", recommendedBase: "Dover Beige or Tan", swatchUrl: FLAKE_SWATCH_IMAGE_URLS.Woodland },
-  { value: "Custom Flake Blend", hex: "linear-gradient(135deg, #3b82f6, #a855f7, #22c55e, #eab308)", recommendedBase: "Select per blend target", swatchUrl: FLAKE_SWATCH_IMAGE_URLS["Custom Flake Blend"] },
+  { value: "Creekbed", hex: "#8B7D6B", recommendedBase: "Dover Beige" },
+  { value: "Yorkshire", hex: "#B9B39F", recommendedBase: "Sable Gray" },
+  { value: "Gravel", hex: "#7F8790", recommendedBase: "Medium Gray" },
+  { value: "Domino", hex: "#2D2F33", recommendedBase: "Sable Gray" },
+  { value: "Nightfall", hex: "#1E2530", recommendedBase: "Medium Gray" },
+  { value: "Tidal Wave", hex: "#3A5D76", recommendedBase: "Sable Gray" },
+  { value: "Shoreline", hex: "#9FA9B2", recommendedBase: "Dover Beige or Tan" },
+  { value: "Cabin Fever", hex: "#6B5A48", recommendedBase: "Sable Gray" },
+  { value: "Woodland", hex: "#4B5A46", recommendedBase: "Dover Beige or Tan" },
+  { value: "Custom Flake Blend", hex: "linear-gradient(135deg, #3b82f6, #a855f7, #22c55e, #eab308)", recommendedBase: "Select per blend target" },
 ];
 
 const BASE_COAT_COLOR_OPTIONS = [
@@ -864,6 +845,14 @@ function isRenderableSwatchUrl(url) {
   return true;
 }
 
+function makeSwatchKey(name = "") {
+  return String(name)
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/i, "")
+    .replace(/\b(swatch|swatches|sample|samples|color|colors|flake|flakes|metallic|metallics|solid)\b/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 const SYSTEM_BENCHMARK_SQFT = 500;
 
 function getSystemMaterialBenchmarkPerSqFt(systemKey, tierKey, answers = {}, speed = "slow") {
@@ -1008,7 +997,7 @@ export default function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [allProfilesByEmail, setAllProfilesByEmail] = useState({});
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [authMode, setAuthMode] = useState("login"); // login | create
+  const [authMode, setAuthMode] = useState("login"); // login | create | reset
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
@@ -1020,6 +1009,7 @@ export default function App() {
   const [authAgreedLegal, setAuthAgreedLegal] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
+  const [orderSubmitMessage, setOrderSubmitMessage] = useState("");
   const [savedOrders, setSavedOrders] = useState([]);
   const [currentPlan, setCurrentPlan] = useState("Free");
   const [poCountThisYear, setPoCountThisYear] = useState(0);
@@ -1034,6 +1024,14 @@ export default function App() {
   const [showBillingHistory, setShowBillingHistory] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profileDraft, setProfileDraft] = useState({ first_name: "", last_name: "", company_name: "" });
+  const [flakeSwatchUrls, setFlakeSwatchUrls] = useState({});
+  const [metallicSwatchUrls, setMetallicSwatchUrls] = useState({});
+  const [solidSwatchUrls, setSolidSwatchUrls] = useState({});
+  const [adminSelfTierDraft, setAdminSelfTierDraft] = useState("msrp");
+  const [adminSelfPlanDraft, setAdminSelfPlanDraft] = useState("Free");
+  const [adminSelfSaveNotice, setAdminSelfSaveNotice] = useState("");
+  const [contractorAdminDraft, setContractorAdminDraft] = useState(null);
+  const [contractorAdminSaveNotice, setContractorAdminSaveNotice] = useState("");
   const recommendedSectionRef = useRef(null);
   const prevSystemFamilyRef = useRef(null);
 
@@ -1074,7 +1072,7 @@ export default function App() {
 
   async function updateProfileByEmail(targetEmail, updates) {
     const email = String(targetEmail || "").trim().toLowerCase();
-    if (!email) return;
+    if (!email) return false;
     const current = normalizeUserProfile(allProfilesByEmail[email] || {});
     const next = {
       ...current,
@@ -1084,13 +1082,14 @@ export default function App() {
     const { error } = await supabase.from("profiles").update(next).eq("email", email);
     if (error) {
       window.alert(error.message || "Profile update failed.");
-      return;
+      return false;
     }
     setAllProfilesByEmail((prev) => ({ ...prev, [email]: normalizeUserProfile(next) }));
     if (email === currentUser) {
       setUserProfile(normalizeUserProfile(next));
     }
     setProfileVersion((v) => v + 1);
+    return true;
   }
 
   function saveContractorPricingForUser(targetEmail, assignedKey) {
@@ -1108,6 +1107,50 @@ export default function App() {
 
   function setEcosPricingAdminForUser(targetEmail, isAdmin) {
     return updateProfileByEmail(targetEmail, { ecosPricingAdmin: !!isAdmin });
+  }
+
+  async function saveAdminSelfTesting() {
+    if (!currentUser || !isPricingMasterEmail(currentUser, userProfile)) return;
+    const email = currentUser.trim().toLowerCase();
+    const ok = await updateProfileByEmail(email, {
+      assignedPricingTierKey: adminSelfTierDraft,
+      membership_tier: tierTagToMembershipTier(adminSelfPlanDraft),
+      needsAdminReview: false,
+    });
+    if (ok) {
+      setAdminSelfSaveNotice("Saved — your test settings are in effect.");
+      setTimeout(() => setAdminSelfSaveNotice(""), 4000);
+    }
+  }
+
+  async function saveContractorAdminPanel() {
+    if (!selectedContractorEmail || !contractorAdminDraft) return;
+    const ok = await updateProfileByEmail(selectedContractorEmail, {
+      isFgpCustomer: contractorAdminDraft.isFgpCustomer,
+      contractorPricingApplicationReceived: contractorAdminDraft.contractorPricingApplicationReceived,
+      assignedPricingTierKey: contractorAdminDraft.assignedPricingTierKey,
+      membership_tier: tierTagToMembershipTier(contractorAdminDraft.planTag),
+      needsAdminReview: false,
+    });
+    if (ok) {
+      setContractorAdminSaveNotice("Saved — customer settings are in effect.");
+      setTimeout(() => setContractorAdminSaveNotice(""), 4000);
+    }
+  }
+
+  async function saveContractorAndReturnToOrdering() {
+    if (!selectedContractorEmail || !contractorAdminDraft) return;
+    const ok = await updateProfileByEmail(selectedContractorEmail, {
+      isFgpCustomer: contractorAdminDraft.isFgpCustomer,
+      contractorPricingApplicationReceived: contractorAdminDraft.contractorPricingApplicationReceived,
+      assignedPricingTierKey: contractorAdminDraft.assignedPricingTierKey,
+      membership_tier: tierTagToMembershipTier(contractorAdminDraft.planTag),
+      needsAdminReview: false,
+    });
+    if (ok) {
+      setPhase("questions");
+      setContractorAdminSaveNotice("");
+    }
   }
 
   function refreshUserDatabaseCard() {
@@ -1248,13 +1291,27 @@ export default function App() {
   const hasSpeedSelection = speedIsRequired ? Boolean(speed) : true;
   const visibleColorOptions =
     activeSystemFamily === "metallic"
-      ? METALLIC_COLOR_OPTIONS.map((value) => ({ value, hex: "#1f2937", recommendedBase: null }))
+      ? METALLIC_COLOR_OPTIONS.map((value) => ({
+          value,
+          hex: "#1f2937",
+          recommendedBase: null,
+          swatchUrl: metallicSwatchUrls[makeSwatchKey(value)] || null,
+        }))
       : activeSystemFamily === "solid"
         ? SOLID_COLOR_OPTIONS.map((value) => {
             const match = BASE_COAT_COLOR_OPTIONS.find((c) => c.value === value);
-            return { value, hex: match?.hex || "#374151", recommendedBase: null, textColor: match?.textColor || "#ffffff" };
+            return {
+              value,
+              hex: match?.hex || "#374151",
+              recommendedBase: null,
+              textColor: match?.textColor || "#ffffff",
+              swatchUrl: solidSwatchUrls[makeSwatchKey(value)] || null,
+            };
           })
-        : STOCKED_COLORS;
+        : STOCKED_COLORS.map((color) => ({
+            ...color,
+            swatchUrl: flakeSwatchUrls[makeSwatchKey(color.value)] || null,
+          }));
   const readyForQuote =
     Boolean(activeSystemKey) &&
     !isRecommendedSystemLocked &&
@@ -1327,6 +1384,7 @@ export default function App() {
     setPhase("questions");
     setSpeed("");
     setSubmittedDraft(null);
+    setOrderSubmitMessage("");
     setOrderJobs([]);
     setContractorName("");
     setJobName("");
@@ -1504,6 +1562,80 @@ export default function App() {
   }, [profileVersion]);
 
   useEffect(() => {
+    const hash = window.location.hash || "";
+    if (/(^|&)type=recovery(&|$)/.test(hash.replace(/^#/, ""))) {
+      setAuthMode("reset");
+      setAuthNotice("Set your new password below.");
+      setAuthError("");
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const flakeKeys = new Set(STOCKED_COLORS.map((c) => makeSwatchKey(c.value)));
+    const metallicKeys = new Set(METALLIC_COLOR_OPTIONS.map((c) => makeSwatchKey(c)));
+    const solidKeys = new Set(SOLID_COLOR_OPTIONS.map((c) => makeSwatchKey(c)));
+    const isRenderableImage = (name = "") => /\.(png|jpe?g|webp|gif|avif|svg)$/i.test(name);
+    async function listFolder(path) {
+      const { data, error } = await supabase.storage.from(SUPABASE_SWATCH_BUCKET).list(path, { limit: 300 });
+      if (error || !mounted) return [];
+      return data || [];
+    }
+    function familyFromPath(pathKey, fileKey) {
+      if (/metallic/.test(pathKey) || metallicKeys.has(fileKey)) return "metallic";
+      if (/solid/.test(pathKey) || solidKeys.has(fileKey)) return "solid";
+      if (/flake/.test(pathKey) || flakeKeys.has(fileKey)) return "flake";
+      return null;
+    }
+    async function loadAllSwatches() {
+      const flakeNext = {};
+      const metallicNext = {};
+      const solidNext = {};
+      const queue = [""];
+      const visited = new Set();
+      let depth = 0;
+
+      while (queue.length && depth < 3) {
+        const currentBatch = [...queue];
+        queue.length = 0;
+        for (const folder of currentBatch) {
+          if (visited.has(folder)) continue;
+          visited.add(folder);
+          const entries = await listFolder(folder);
+          for (const entry of entries) {
+            if (!entry?.name) continue;
+            const path = folder ? `${folder}/${entry.name}` : entry.name;
+            if (!entry.id) {
+              queue.push(path);
+              continue;
+            }
+            if (!isRenderableImage(entry.name)) continue;
+            const pathKey = makeSwatchKey(path);
+            const fileKey = makeSwatchKey(entry.name);
+            const family = familyFromPath(pathKey, fileKey);
+            if (!family) continue;
+            const { data } = supabase.storage.from(SUPABASE_SWATCH_BUCKET).getPublicUrl(path);
+            const url = data?.publicUrl || (SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_SWATCH_BUCKET}/${path}` : "");
+            if (!url) continue;
+            if (family === "flake") flakeNext[fileKey] = url;
+            if (family === "metallic") metallicNext[fileKey] = url;
+            if (family === "solid") solidNext[fileKey] = url;
+          }
+        }
+        depth += 1;
+      }
+      if (!mounted) return;
+      setFlakeSwatchUrls(flakeNext);
+      setMetallicSwatchUrls(metallicNext);
+      setSolidSwatchUrls(solidNext);
+    }
+    loadAllSwatches();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const state = { ecosApp: true, phase };
     if (window.history.state?.ecosApp) {
       window.history.pushState(state, "");
@@ -1570,6 +1702,27 @@ export default function App() {
     prevSystemFamilyRef.current = activeSystemFamily;
   }, [activeSystemFamily]);
 
+  useEffect(() => {
+    if (phase !== "account" || !currentUser || !isPricingMasterEmail(currentUser, userProfile)) return;
+    const me = normalizeUserProfile(allProfilesByEmail[currentUser] || userProfile || {});
+    setAdminSelfTierDraft(me.assignedPricingTierKey || "msrp");
+    setAdminSelfPlanDraft(membershipTierToPlanTag(me.membership_tier || "free"));
+  }, [phase, currentUser, allProfilesByEmail, userProfile]);
+
+  useEffect(() => {
+    if (phase !== "userdb" || !selectedContractorEmail) {
+      setContractorAdminDraft(null);
+      return;
+    }
+    const prof = normalizeUserProfile(allProfilesByEmail[selectedContractorEmail] || {});
+    setContractorAdminDraft({
+      isFgpCustomer: !!prof.isFgpCustomer,
+      contractorPricingApplicationReceived: !!prof.contractorPricingApplicationReceived,
+      assignedPricingTierKey: prof.assignedPricingTierKey || "msrp",
+      planTag: membershipTierToPlanTag(prof.membership_tier || "free"),
+    });
+  }, [phase, selectedContractorEmail, allProfilesByEmail]);
+
   async function handleSubmitOrder() {
     if (!results || !recommendedSystem || !combinedTotals) return;
     if (membershipTier === "tier1" && poCountThisYear >= MAX_TIER1_POS_PER_YEAR) {
@@ -1614,8 +1767,23 @@ export default function App() {
           ? +(combinedTotals.requiredMaterialTierTotal / combinedTotals.totalSqFt).toFixed(2)
           : 0,
     });
-    // Client-side handoff: open the user's email app with prefilled order.
-    openFgOrderEmail(body, subject);
+    setOrderSubmitMessage("Sending PO to FGP Midwest...");
+    try {
+      const sendRes = await fetch("/api/send-po", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject, body }),
+      });
+      if (!sendRes.ok) {
+        const sendErr = await sendRes.json().catch(() => ({}));
+        throw new Error(sendErr?.error || "PO email send failed.");
+      }
+      setOrderSubmitMessage("PO sent to orders@fgpmidwest.com.");
+    } catch (sendErr) {
+      setOrderSubmitMessage("Could not send PO automatically. Opening email app fallback.");
+      openFgOrderEmail(body, subject);
+      console.error(sendErr);
+    }
     if (session?.user?.id) {
       const jobs = [...orderJobs, currentJobSnapshot].filter(Boolean).map((j) => ({
         jobNamePo: j.jobNamePo,
@@ -1669,6 +1837,23 @@ export default function App() {
     setPhase("submitted");
   }
 
+  async function handleForgotPassword() {
+    setAuthError("");
+    setAuthNotice("");
+    const email = authEmail.trim().toLowerCase();
+    if (!email) {
+      setAuthError("Enter your email first, then click Forgot password.");
+      return;
+    }
+    const redirectTo = `${window.location.origin}/`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+    setAuthNotice("Password reset email sent. Open it and follow the link to set a new password.");
+  }
+
   function handleDuplicateSavedOrder(orderRecord) {
     if (currentPlan === "Free") {
       const shouldUpgrade = window.confirm(
@@ -1712,8 +1897,29 @@ export default function App() {
     setAuthNotice("");
     const email = authEmail.trim().toLowerCase();
     const password = authPassword;
-    if (!email || !password) {
+    if (authMode !== "reset" && (!email || !password)) {
       setAuthError("Enter email and password.");
+      return;
+    }
+    if (authMode === "reset") {
+      if (!password) {
+        setAuthError("Enter a new password.");
+        return;
+      }
+      if (password !== authConfirmPassword) {
+        setAuthError("Passwords do not match.");
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        setAuthError(error.message);
+        return;
+      }
+      setAuthNotice("Password updated. You can now log in.");
+      setAuthMode("login");
+      setAuthPassword("");
+      setAuthConfirmPassword("");
+      window.history.replaceState({}, document.title, window.location.pathname);
       return;
     }
     if (authMode === "create") {
@@ -1733,6 +1939,7 @@ export default function App() {
         email,
         password,
         options: {
+          emailRedirectTo: `${window.location.origin}/`,
           data: {
             first_name: authFirstName.trim(),
             last_name: authLastName.trim(),
@@ -1965,18 +2172,23 @@ export default function App() {
           <div style={S.authWrap}>
             <div style={S.authCard}>
               <div style={S.authTitle}>Welcome to ECOS</div>
-              <div style={S.authSub}>Create an account or login to continue.</div>
+              <div style={S.authSub}>
+                {authMode === "reset" ? "Set your new password." : "Create an account or login to continue."}
+              </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                 <button type="button" style={S.opt(authMode === "login")} onClick={() => setAuthMode("login")}>Login</button>
                 <button type="button" style={S.opt(authMode === "create")} onClick={() => setAuthMode("create")}>Create Account</button>
+                <button type="button" style={S.opt(authMode === "reset")} onClick={() => setAuthMode("reset")}>Reset Password</button>
               </div>
               <div style={{ display: "grid", gap: 10 }}>
-                <input style={S.input} placeholder="Email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} />
+                {authMode !== "reset" && (
+                  <input style={S.input} placeholder="Email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} />
+                )}
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <input
                     style={{ ...S.input, flex: 1 }}
                     type={authShowPassword ? "text" : "password"}
-                    placeholder="Password"
+                    placeholder={authMode === "reset" ? "New password" : "Password"}
                     value={authPassword}
                     onChange={(e) => setAuthPassword(e.target.value)}
                   />
@@ -2027,6 +2239,25 @@ export default function App() {
                     </label>
                   </>
                 )}
+                {authMode === "reset" && (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      style={{ ...S.input, flex: 1 }}
+                      type={authShowConfirmPassword ? "text" : "password"}
+                      placeholder="Confirm new password"
+                      value={authConfirmPassword}
+                      onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      style={S.btnSm}
+                      onClick={() => setAuthShowConfirmPassword((v) => !v)}
+                      title={authShowConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                    >
+                      {authShowConfirmPassword ? "🙈" : "👁"}
+                    </button>
+                  </div>
+                )}
                 {authNotice && (
                   <div
                     style={{
@@ -2044,8 +2275,13 @@ export default function App() {
                 )}
                 {authError && <div style={{ color: "#fca5a5", fontSize: 11 }}>{authError}</div>}
                 <button type="button" style={S.btn} onClick={handleAuthSubmit}>
-                  {authMode === "login" ? "Login" : "Create Account"}
+                  {authMode === "login" ? "Login" : authMode === "create" ? "Create Account" : "Set New Password"}
                 </button>
+                {authMode === "login" && (
+                  <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={handleForgotPassword}>
+                    Forgot password?
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -2356,7 +2592,7 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: activeSystemFamily === "flake" ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr",
+                      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
                       gap: 8,
                     }}
                   >
@@ -2367,15 +2603,15 @@ export default function App() {
                         onClick={() => answer("color", color.value)}
                       >
                         <div>
-                          {isRenderableSwatchUrl(color.swatchUrl) && activeSystemFamily === "flake" ? (
+                          {isRenderableSwatchUrl(color.swatchUrl) ? (
                             <div
                               style={{
                                 width: "100%",
-                                height: 120,
+                                height: 84,
                                 borderRadius: 6,
                                 border: "1px solid rgba(255,255,255,0.35)",
                                 backgroundImage: `url(${color.swatchUrl})`,
-                                backgroundSize: "145%",
+                                backgroundSize: "cover",
                                 backgroundPosition: "center",
                                 backgroundRepeat: "no-repeat",
                                 marginBottom: 8,
@@ -2385,7 +2621,7 @@ export default function App() {
                             <span
                               style={{
                                 width: "100%",
-                                height: 120,
+                                height: 84,
                                 borderRadius: 6,
                                 background: color.hex || "#374151",
                                 border: "1px solid rgba(255,255,255,0.35)",
@@ -2709,6 +2945,9 @@ export default function App() {
               <div style={{ fontSize: 14, color: "#d2def1", lineHeight: 1.6, marginBottom: 10 }}>
                 Your Order has been submitted. We will begin staging your order and ordering in anything not in Stock, we will Notify you within 24-48 hrs. of a total ETA on all products in the order.
               </div>
+              {orderSubmitMessage && (
+                <div style={{ fontSize: 12, color: "#f5d676", marginBottom: 10 }}>{orderSubmitMessage}</div>
+              )}
               <div style={{ fontSize: 12, color: "#d2def1", lineHeight: 1.6 }}>
                 <div><span style={{ color: "#9bb2d1" }}>Job / PO #:</span> <span style={{ color: "#ffffff" }}>{submittedDraft.jobNamePo}</span></div>
                 <div><span style={{ color: "#9bb2d1" }}>Address:</span> <span style={{ color: "#ffffff" }}>{submittedDraft.address}</span></div>
@@ -2814,11 +3053,8 @@ export default function App() {
                   )}
                 </div>
                 {isCurrentUserPricingMaster && (
-                  <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 3 }}>
-                    Status:{" "}
-                    {activeUserProfile?.isFgpCustomer ? "FGP tagged" : "Not FGP tagged"} ·{" "}
-                    {activeUserProfile?.contractorPricingApplicationReceived ? "Application received" : "Application missing"} ·{" "}
-                    Assigned {TIERS[activeUserProfile?.assignedPricingTierKey || "msrp"].label}
+                  <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 3, lineHeight: 1.45 }}>
+                    Admin: tag contractors as FGP Midwest / pricing-app received under <strong>User database</strong> (not here). Use <strong>Testing mode</strong> below only to simulate <em>your</em> app plan and assigned buying tier.
                   </div>
                 )}
                 <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 6 }}>
@@ -2935,7 +3171,7 @@ export default function App() {
                 <div style={S.sectionHead}>Testing mode</div>
                 <div style={{ ...S.cardGold, marginBottom: 14 }}>
                   <div style={{ fontSize: 11, color: "#d2def1", lineHeight: 1.5, marginBottom: 10 }}>
-                    <strong>Your account only</strong> — simulate the full approval flow while demoing ECOS. New users are MSRP-only by default until these checks are complete.
+                    <strong>Your account only</strong> — adjust your ECOS app plan and assigned buying tier, then <strong>Save</strong>. FGP customer + pricing-app toggles are managed under <strong>User database</strong> after you select a contractor.
                   </div>
                   {(() => {
                     const meKey = currentUser.trim().toLowerCase();
@@ -2943,39 +3179,11 @@ export default function App() {
                     return (
                       <div style={{ display: "grid", gap: 10 }}>
                         <div>
-                          <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>FGP Midwest customer</div>
-                          <button
-                            type="button"
-                            style={S.opt(!!me.isFgpCustomer)}
-                            onClick={() =>
-                              updateContractorPricingFlags(meKey, {
-                                isFgpCustomer: !me.isFgpCustomer,
-                              })
-                            }
-                          >
-                            {me.isFgpCustomer ? "YES" : "NO"}
-                          </button>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>Pricing app received</div>
-                          <button
-                            type="button"
-                            style={S.opt(!!me.contractorPricingApplicationReceived)}
-                            onClick={() =>
-                              updateContractorPricingFlags(meKey, {
-                                contractorPricingApplicationReceived: !me.contractorPricingApplicationReceived,
-                              })
-                            }
-                          >
-                            {me.contractorPricingApplicationReceived ? "YES" : "NO"}
-                          </button>
-                        </div>
-                        <div>
                           <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>Assigned buying tier</div>
                           <select
                             style={S.input}
-                            value={me.assignedPricingTierKey}
-                            onChange={(e) => saveContractorPricingForUser(meKey, e.target.value)}
+                            value={adminSelfTierDraft}
+                            onChange={(e) => setAdminSelfTierDraft(e.target.value)}
                           >
                             {Object.keys(TIERS).map((k) => (
                               <option key={k} value={k}>
@@ -2988,15 +3196,30 @@ export default function App() {
                           <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>User access level</div>
                           <select
                             style={S.input}
-                            value={me.plan || "Free"}
-                            onChange={(e) => updateUserPlanForUser(meKey, e.target.value)}
+                            value={adminSelfPlanDraft}
+                            onChange={(e) => setAdminSelfPlanDraft(e.target.value)}
                           >
                             <option value="Free">Free</option>
                             <option value="Tier 1">Tier 1 — The Calculator ($49/mo)</option>
+                            <option value="Tier 2">Tier 2 — The Estimator (coming soon)</option>
                           </select>
                         </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                          <button type="button" style={S.btn} onClick={saveAdminSelfTesting}>
+                            Save testing settings
+                          </button>
+                          <button type="button" style={S.btnSm} onClick={() => setPhase("questions")}>
+                            Back to ECOS
+                          </button>
+                        </div>
+                        {adminSelfSaveNotice && (
+                          <div style={{ fontSize: 11, color: "#22c55e", fontWeight: 700 }}>{adminSelfSaveNotice}</div>
+                        )}
                         <div style={{ fontSize: 10, color: "#9bb2d1", lineHeight: 1.45 }}>
-                          Effective pricing now: <span style={{ color: "#ffffff", fontWeight: 700 }}>{TIERS[getEffectiveContractorPricingTierKey(me)].label}</span>
+                          Effective pricing preview (after save uses cloud profile):{" "}
+                          <span style={{ color: "#ffffff", fontWeight: 700 }}>
+                            {TIERS[getEffectiveContractorPricingTierKey({ ...me, assignedPricingTierKey: adminSelfTierDraft, membership_tier: tierTagToMembershipTier(adminSelfPlanDraft) })].label}
+                          </span>
                         </div>
                       </div>
                     );
@@ -3148,44 +3371,78 @@ export default function App() {
                         </button>
                       </div>
                       {pricingConsoleTab === "tier" &&
+                        contractorAdminDraft &&
                         (() => {
-                          const prof = normalizeUserProfile(usersSnapshot[selectedContractorEmail] || {});
+                          const previewProf = normalizeUserProfile({
+                            ...usersSnapshot[selectedContractorEmail],
+                            ...contractorAdminDraft,
+                            membership_tier: tierTagToMembershipTier(contractorAdminDraft.planTag),
+                          });
                           return (
-                            <div style={{ display: "grid", gap: 10 }}>
-                              <div>
-                                <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>FGP Midwest customer</div>
-                                <button
-                                  type="button"
-                                  style={S.opt(!!prof.isFgpCustomer)}
-                                  onClick={() =>
-                                    updateContractorPricingFlags(selectedContractorEmail, {
-                                      isFgpCustomer: !prof.isFgpCustomer,
-                                    })
-                                  }
-                                >
-                                  {prof.isFgpCustomer ? "ON" : "OFF"}
-                                </button>
+                            <div style={{ display: "grid", gap: 12 }}>
+                              <div style={{ fontSize: 10, color: "#eab308", lineHeight: 1.45 }}>
+                                Internal-only: contractor never sees these gates — only you (pricing admin) while managing accounts.
                               </div>
                               <div>
-                                <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>Pricing app received</div>
-                                <button
-                                  type="button"
-                                  style={S.opt(!!prof.contractorPricingApplicationReceived)}
-                                  onClick={() =>
-                                    updateContractorPricingFlags(selectedContractorEmail, {
-                                      contractorPricingApplicationReceived: !prof.contractorPricingApplicationReceived,
-                                    })
-                                  }
-                                >
-                                  {prof.contractorPricingApplicationReceived ? "YES" : "NO"}
-                                </button>
+                                <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 6 }}>FGP Midwest customer</div>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button
+                                    type="button"
+                                    style={S.opt(contractorAdminDraft.isFgpCustomer)}
+                                    onClick={() =>
+                                      setContractorAdminDraft((d) => (d ? { ...d, isFgpCustomer: true } : d))
+                                    }
+                                  >
+                                    ON
+                                  </button>
+                                  <button
+                                    type="button"
+                                    style={S.opt(!contractorAdminDraft.isFgpCustomer)}
+                                    onClick={() =>
+                                      setContractorAdminDraft((d) => (d ? { ...d, isFgpCustomer: false } : d))
+                                    }
+                                  >
+                                    OFF
+                                  </button>
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 6 }}>Pricing application received</div>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button
+                                    type="button"
+                                    style={S.opt(contractorAdminDraft.contractorPricingApplicationReceived)}
+                                    onClick={() =>
+                                      setContractorAdminDraft((d) =>
+                                        d ? { ...d, contractorPricingApplicationReceived: true } : d
+                                      )
+                                    }
+                                  >
+                                    YES
+                                  </button>
+                                  <button
+                                    type="button"
+                                    style={S.opt(!contractorAdminDraft.contractorPricingApplicationReceived)}
+                                    onClick={() =>
+                                      setContractorAdminDraft((d) =>
+                                        d ? { ...d, contractorPricingApplicationReceived: false } : d
+                                      )
+                                    }
+                                  >
+                                    NO
+                                  </button>
+                                </div>
                               </div>
                               <div>
                                 <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>Assigned buying tier</div>
                                 <select
                                   style={S.input}
-                                  value={prof.assignedPricingTierKey}
-                                  onChange={(e) => saveContractorPricingForUser(selectedContractorEmail, e.target.value)}
+                                  value={contractorAdminDraft.assignedPricingTierKey}
+                                  onChange={(e) =>
+                                    setContractorAdminDraft((d) =>
+                                      d ? { ...d, assignedPricingTierKey: e.target.value } : d
+                                    )
+                                  }
                                 >
                                   {Object.keys(TIERS).map((k) => (
                                     <option key={k} value={k}>
@@ -3198,15 +3455,30 @@ export default function App() {
                                 <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>User access level</div>
                                 <select
                                   style={S.input}
-                                  value={prof.plan || "Free"}
-                                  onChange={(e) => updateUserPlanForUser(selectedContractorEmail, e.target.value)}
+                                  value={contractorAdminDraft.planTag}
+                                  onChange={(e) =>
+                                    setContractorAdminDraft((d) => (d ? { ...d, planTag: e.target.value } : d))
+                                  }
                                 >
                                   <option value="Free">Free</option>
                                   <option value="Tier 1">Tier 1 — The Calculator ($49/mo)</option>
+                                  <option value="Tier 2">Tier 2 — The Estimator (coming soon)</option>
                                 </select>
                               </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                                <button type="button" style={S.btn} onClick={saveContractorAdminPanel}>
+                                  Save changes
+                                </button>
+                                <button type="button" style={S.btnSm} onClick={saveContractorAndReturnToOrdering}>
+                                  Save & return to job setup
+                                </button>
+                              </div>
+                              {contractorAdminSaveNotice && (
+                                <div style={{ fontSize: 11, color: "#22c55e", fontWeight: 700 }}>{contractorAdminSaveNotice}</div>
+                              )}
                               <div style={{ fontSize: 10, color: "#9bb2d1", lineHeight: 1.45 }}>
-                                Effective pricing now: <span style={{ color: "#ffffff", fontWeight: 700 }}>{TIERS[getEffectiveContractorPricingTierKey(prof)].label}</span>
+                                Effective pricing (if saved as shown):{" "}
+                                <span style={{ color: "#ffffff", fontWeight: 700 }}>{TIERS[getEffectiveContractorPricingTierKey(previewProf)].label}</span>
                               </div>
                             </div>
                           );
