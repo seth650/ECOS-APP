@@ -1602,6 +1602,17 @@ export default function App() {
     function hasFilenameExtension(name = "") {
       return /\.[a-z0-9]{2,8}$/i.test(name);
     }
+    /**
+     * Detect flake/metallic/solid from the real Storage path (folder names).
+     * Important: makeSwatchKey() strips words like "flake" and "solid", so never rely on pathKey alone for folders like "Flake Swatches/".
+     */
+    function familyFromRelativePath(relPath = "") {
+      const p = relPath.toLowerCase();
+      if (p.includes("metallic")) return "metallic";
+      if (p.includes("solid")) return "solid";
+      if (p.includes("flake")) return "flake";
+      return null;
+    }
     function familyFromPath(pathKey, fileKey) {
       if (/metallic/.test(pathKey) || metallicKeys.has(fileKey)) return "metallic";
       if (/solid/.test(pathKey) || solidKeys.has(fileKey)) return "solid";
@@ -1650,7 +1661,7 @@ export default function App() {
 
             const pathKey = makeSwatchKey(path);
             const fileKey = makeSwatchKey(entry.name);
-            let family = familyFromPath(pathKey, fileKey);
+            let family = familyFromRelativePath(path) || familyFromPath(pathKey, fileKey);
             let mappedFlakeKey = resolveCatalogKey(fileKey, flakeKeys);
             let mappedMetallicKey = resolveCatalogKey(fileKey, metallicKeys);
             let mappedSolidKey = resolveCatalogKey(fileKey, solidKeys);
