@@ -1575,6 +1575,18 @@ export default function App() {
     const flakeKeys = new Set(STOCKED_COLORS.map((c) => makeSwatchKey(c.value)));
     const metallicKeys = new Set(METALLIC_COLOR_OPTIONS.map((c) => makeSwatchKey(c)));
     const solidKeys = new Set(SOLID_COLOR_OPTIONS.map((c) => makeSwatchKey(c)));
+    function resolveCatalogKey(fileKey, keySet) {
+      if (!fileKey) return null;
+      if (keySet.has(fileKey)) return fileKey;
+      let best = null;
+      for (const key of keySet) {
+        if (!key) continue;
+        if (fileKey.includes(key) || key.includes(fileKey)) {
+          if (!best || key.length > best.length) best = key;
+        }
+      }
+      return best;
+    }
     const isRenderableImage = (name = "") => /\.(png|jpe?g|webp|gif|avif|svg)$/i.test(name);
     async function listFolder(path) {
       const { data, error } = await supabase.storage.from(SUPABASE_SWATCH_BUCKET).list(path, { limit: 300 });
@@ -1614,12 +1626,15 @@ export default function App() {
             const fileKey = makeSwatchKey(entry.name);
             const family = familyFromPath(pathKey, fileKey);
             if (!family) continue;
+            const mappedFlakeKey = resolveCatalogKey(fileKey, flakeKeys);
+            const mappedMetallicKey = resolveCatalogKey(fileKey, metallicKeys);
+            const mappedSolidKey = resolveCatalogKey(fileKey, solidKeys);
             const { data } = supabase.storage.from(SUPABASE_SWATCH_BUCKET).getPublicUrl(path);
             const url = data?.publicUrl || (SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_SWATCH_BUCKET}/${path}` : "");
             if (!url) continue;
-            if (family === "flake") flakeNext[fileKey] = url;
-            if (family === "metallic") metallicNext[fileKey] = url;
-            if (family === "solid") solidNext[fileKey] = url;
+            if (family === "flake" && mappedFlakeKey) flakeNext[mappedFlakeKey] = url;
+            if (family === "metallic" && mappedMetallicKey) metallicNext[mappedMetallicKey] = url;
+            if (family === "solid" && mappedSolidKey) solidNext[mappedSolidKey] = url;
           }
         }
         depth += 1;
