@@ -1305,7 +1305,8 @@ export default function App() {
               value,
               hex: match?.hex || "#374151",
               recommendedBase: null,
-              textColor: match?.textColor || "#ffffff",
+              /** Always white on solid swatch cards (dark UI); base coat row keeps its own contrast. */
+              textColor: "#ffffff",
               swatchUrl: solidSwatchUrls[makeSwatchKey(value)] || null,
             };
           })
