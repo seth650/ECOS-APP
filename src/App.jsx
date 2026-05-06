@@ -7,8 +7,8 @@ const SUPABASE_SWATCH_BUCKET = "Color Swatches";
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
 
 // ─── PRIVATE LABEL MAP ───────────────────────────────────────────────────────
-// SurfKoat MCU 85       = EZ Top 85 (ET PL)
-// SurfKoat 1040 BondKoat = HydroPrime (ET PL)
+// SurfKoat MCU 85        = EZ Top 85 (Epoxy Twins PL)
+// SurfKoat 1040 BondKoat = HydroPrime 40 (Epoxy Twins PL; tint EpoTint-WB vs mfg Epopac WB)
 // Rapid Set 100          = Patch Pro 10X (ET PL)
 
 // ─── PRODUCT CATALOG ─────────────────────────────────────────────────────────
@@ -53,7 +53,8 @@ function resolveEpolyProductKey(baseCoatColor) {
 
 function resolveLayerProductKey(layer, answers) {
   if (layer.key !== "epoly_pigment") return layer.key;
-  return resolveEpolyProductKey(answers?.baseCoatColor);
+  // Solid systems tint from selected color; flake systems tint from selected base coat color.
+  return resolveEpolyProductKey(answers?.baseCoatColor || answers?.color);
 }
 
 // MSRP kit pricing aligned to FGP Midwest master list (Apr 2026 export). E-Poly = per-color variants.
@@ -62,15 +63,36 @@ const PRODUCTS = {
   dt454_turbo:    { name: "DT-454 Clear (Turbo)", kits: [{ size: "3 gal", gals: 3, msrp: 210 }, { size: "15 gal", gals: 15, msrp: 975 }] },
   hyperbond:      { name: "HyperBond (Clear)",    kits: [{ size: "3 gal", gals: 3, msrp: 195 }, { size: "15 gal", gals: 15, msrp: 870 }] },
   mv2112:         { name: "MV 2112 (MVB)",        kits: [{ size: "3 gal", gals: 3, msrp: 360 }, { size: "15 gal", gals: 15, msrp: 1575 }] },
-  hyperprime_mvb: { name: "HyperPrime MVB",       kits: [{ size: "3 gal", gals: 3, msrp: 177 }, { size: "15 gal", gals: 15, msrp: 855 }] },
+  hyperprime_mvb: {
+    name: "HyperPrime MVB (Clear)",
+    kits: [{ size: "3 gal", gals: 3, msrp: 177, tierPrices: { small: 168.15, tier2: 159.3, preferred: 150.45 } }, { size: "15 gal", gals: 15, msrp: 855, tierPrices: { small: 812.25, tier2: 769.5, preferred: 726.75 } }],
+  },
   polyurea_slow:  { name: "Polyurea Basecoat (Slow)",   kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
   polyurea_med:   { name: "Polyurea Basecoat (Medium)", kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
   polyurea_fast:  { name: "Polyurea Basecoat (Fast)",   kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
   aspartic85:     { name: "Aspartic 85 Slow Go (Low Odor)", kits: [{ size: "3 gal", gals: 3, msrp: 300 }, { size: "15 gal", gals: 15, msrp: 1475 }] },
-  ez_top_85:      { name: "EZ Top 85 (ET)",       kits: [{ size: "3 gal", gals: 3, msrp: 295 }, { size: "15 gal", gals: 15, msrp: 1425 }] },
+  ez_top_85:      {
+    name: "EZ Top 85 (MCU 85 mfg) — with WearMax",
+    kits: [{ size: "1 gal", gals: 1, msrp: 158.8, tierPrices: { small: 130.77, tier2: 121.43, preferred: 112.09 } }],
+  },
   hydroprime:     { name: "HydroPrime (ET)",       kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
-  hydroprime_40:  { name: "HydroPrime 40 (ET PL 1040 BondKoat)", kits: [{ size: "2 gal", gals: 2, msrp: 165 }, { size: "10 gal", gals: 10, msrp: 924.68 }] },
+  hydroprime_40:  { name: "HydroPrime 40 (Bond / primer — 1040 BondKoat PL)", kits: [{ size: "2 gal", gals: 2, msrp: 165 }, { size: "10 gal", gals: 10, msrp: 924.68 }] },
   maxx_flow:      { name: "Maxx Flow (Metallic)",  kits: [{ size: "3 gal", gals: 3, msrp: 360 }, { size: "15 gal", gals: 15, msrp: 1550 }] },
+  hyperflow:      { name: "HyperFLOW (Metallic Artistic Layer)", kits: [{ size: "3 gal", gals: 3, msrp: 360 }, { size: "15 gal", gals: 15, msrp: 1550 }] },
+  hyperprime_mvb_pig: {
+    name: "HyperPRIME MVB (Pigmented)",
+    kits: [{ size: "3 gal", gals: 3, msrp: 195, tierPrices: { small: 185.25, tier2: 175.5, preferred: 165.75 } }, { size: "15 gal", gals: 15, msrp: 960, tierPrices: { small: 912, tier2: 864, preferred: 816 } }],
+  },
+  metallic_mica_4oz: {
+    name: "Metallic Pigment (Mica) — 4oz jar",
+    pricingModel: "accessory",
+    kits: [{ size: "4 oz jar", gals: 0, qtyUnit: "jar", msrp: 12.5, tierPrices: { small: 12.5, tier2: 12.5, preferred: 11.88 } }],
+  },
+  wearmax_3lb: {
+    name: "WearMax — 3 lb jar",
+    pricingModel: "accessory",
+    kits: [{ size: "3 lb jar", lbs: 3, msrp: 26.74, tierPrices: { small: 22.02, tier2: 20.45, preferred: 18.88 } }],
+  },
   ...buildEpolyPigmentProductMap(),
   patch_pro_10x:  { name: "Patch Pro 10X (ET)",    kits: [{ size: "2 gal", gals: 2, msrp: 146.07 }] },
   hypercure:      { name: "HyperCURE",             kits: [{ size: "0.5 gal", gals: 0.5, msrp: 100.1 }] },
@@ -147,6 +169,14 @@ function getTierMultiplierForProduct(productKey, tierKey) {
     return ACCESSORY_TIER_MULTS[tierKey] ?? 1;
   }
   return TIERS[tierKey]?.mult ?? 1;
+}
+
+function getKitTierPrice(kit, productKey, tierKey) {
+  if (kit?.tierPrices && typeof kit.tierPrices[tierKey] === "number") {
+    return +kit.tierPrices[tierKey].toFixed(2);
+  }
+  const tierMult = getTierMultiplierForProduct(productKey, tierKey);
+  return +((kit?.msrp || 0) * tierMult).toFixed(2);
 }
 
 /** Higher index = better contractor discount. Used for FGP Midwest “assigned vs active” pricing. */
@@ -244,12 +274,17 @@ const SYSTEMS = {
             "100 ft²/gal (lower end) · need not be applied neat — optional E-Poly tint (~+10% mix volume vs neat target) · before polyurea base",
         });
       }
-      items.push({ key: baseKey, gals: sf / 250, label: "Basecoat — Polyurea Basecoat", notes: "250 ft²/gal · ribbon/roll" });
-      const pigGals = (sf / 250) * 0.10;
+      items.push({ key: baseKey, gals: sf / 190, label: "Basecoat — Polyurea Basecoat", notes: "180–200 ft²/gal · 2A:1B · ribbon/roll" });
+      const pigGals = (sf / 190) * 0.10;
       items.push({ key: "epoly_pigment", gals: pigGals, label: "E-Poly Pigment", notes: "+10% total mix volume" });
       const flakeLbs = sf / 10;
       items.push({ key: "flake_14", lbs: flakeLbs, label: "Decorative Flake 1/4\"", notes: "10–13 ft²/lb · broadcast to rejection" });
-      items.push({ key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY, gals: sf / 120, label: "Final Clear Topcoat — Aspartic 85 Slow Go (Low Odor)", notes: "120–145 ft²/gal · squeegee/roll" });
+      items.push({
+        key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY,
+        gals: sf / 120,
+        label: "Final Clear Topcoat — Aspartic 85 Slow Go (Low Odor)",
+        notes: "120–145 ft²/gal · 2A:1B · squeegee/roll (planning uses lower end of range)",
+      });
       if (opts.steps > 0) items.push({ key: "silica_sand", lbs: opts.steps * 2, label: "Traction Sand (Steps)", notes: "Required on all stair treads" });
       return items;
     }
@@ -316,12 +351,34 @@ const SYSTEMS = {
       if (opts.moisture === "high" || opts.moisture === "moderate") {
         items.push({ key: "mv2112", gals: sf / 95, label: "MVB — MV2112", notes: "95 ft²/gal · 2:1" });
       } else {
-        items.push({ key: "dt454_turbo", gals: sf / 250, label: "Primer — DT-454 Clear (Turbo)", notes: "250 ft²/gal conservative · 2:1 · pan roll" });
+        const primerTint = String(opts.metallicPrimerTint || "Gray").trim();
+        const tintIsClear = primerTint.toLowerCase() === "clear";
+        items.push({
+          key: tintIsClear ? "hyperprime_mvb" : "hyperprime_mvb_pig",
+          gals: sf / 120,
+          label: `Primer — HyperPRIME MVB (${tintIsClear ? "Clear" : `Pigmented ${primerTint}`})`,
+          notes: "120 ft²/gal · used as first primer layer unless moisture is moderate/high",
+        });
       }
       items.push({ key: "dt454_turbo", gals: sf / 170, label: "Basecoat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1" });
       items.push({ key: "epoly_pigment", gals: (sf / 170) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
-      items.push({ key: "maxx_flow", gals: sf / 30, label: "Artistic Layer — Maxx Flow", notes: "30–50 ft²/gal · 2:1 · consult Recipe Book" });
-      items.push({ key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY, gals: sf / 600, label: "Topcoat — Aspartic 85 Slow Go (Low Odor)", notes: "600 ft²/gal min · 0.75 lb/gal RES" });
+      const hyperflowGals = sf / 40;
+      items.push({ key: "hyperflow", gals: hyperflowGals, label: "Artistic Layer — HyperFLOW", notes: "40 ft²/gal planning rate · 2:1" });
+      items.push({
+        key: "metallic_mica_4oz",
+        gals: 0,
+        qty: hyperflowGals * (4 / 3),
+        label: "Metallic Pigment (Mica) — 4oz jars",
+        notes: "16 oz mica per 3 gal HyperFLOW (4 jars per 3 gal)",
+      });
+      const topcoatGals = sf / 600;
+      items.push({ key: "ez_top_85", gals: topcoatGals, label: "Topcoat — EZ Top 85 (MCU 85 mfg)", notes: "600 ft²/gal min" });
+      items.push({
+        key: "wearmax_3lb",
+        lbs: topcoatGals * 3,
+        label: "WearMax Additive",
+        notes: "3 lb/gal EZ Top 85 · 500–600 ft²/gal target",
+      });
       return items;
     }
   },
@@ -350,11 +407,20 @@ const SYSTEMS = {
     layers: (sf, opts) => {
       const items = [];
       if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
-      items.push({ key: "dt454_turbo", gals: sf / 250, label: "Primer — DT-454 Clear (Turbo)", notes: "250–350 ft²/gal · 2:1 · squeegee/roll" });
-      items.push({ key: "dt454_turbo", gals: sf / 140, label: "Basecoat — DT-454 Clear (Turbo)", notes: "140–170 ft²/gal · 2:1 · notch squeegee 8-12 mil WFT" });
-      items.push({ key: "epoly_pigment", gals: (sf / 140) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
-      items.push({ key: "dt454_turbo", gals: sf / 170, label: "Seal Coat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · conservative lock coat before final top" });
-      items.push({ key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY, gals: sf / 600, label: "Topcoat — Aspartic 85 Slow Go (Low Odor)", notes: "600 ft²/gal planning rate" });
+      items.push({
+        key: "hydroprime_40",
+        gals: sf / 300,
+        label: "Primer / Bond Coat — HydroPrime 40",
+        notes: "250–350 ft²/gal · squeegee/roll · tint EpoTint-WB (1 pt / 2 gal mixed)",
+      });
+      items.push({ key: "dt454_turbo", gals: sf / 155, label: "Body Coat — DT-454 Clear (Turbo)", notes: "140–170 ft²/gal · 2:1 · notch squeegee 8–12 mil WFT" });
+      items.push({ key: "epoly_pigment", gals: (sf / 155) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume (body coat)" });
+      items.push({
+        key: "ez_top_85",
+        gals: sf / 600,
+        label: "Topcoat — EZ Top 85 (Low Odor) — MCU 85 (manufacturer)",
+        notes: "600 ft²/gal min · single component · add silica wear per RES/COM spec",
+      });
       return items;
     }
   },
@@ -367,10 +433,14 @@ const SYSTEMS = {
       const items = [];
       if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
       items.push({ key: "mv2112", gals: sf / 95, label: "MVB — MV2112", notes: "95 ft²/gal · 1:1 · 3/16\" notch squeegee" });
-      items.push({ key: "dt454_turbo", gals: sf / 140, label: "Basecoat — DT-454 Clear (Turbo)", notes: "140–170 ft²/gal · 2:1" });
-      items.push({ key: "epoly_pigment", gals: (sf / 140) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
-      items.push({ key: "dt454_turbo", gals: sf / 170, label: "Seal Coat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · conservative lock coat before final top" });
-      items.push({ key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY, gals: sf / 600, label: "Topcoat — Aspartic 85 Slow Go (Low Odor)", notes: "600 ft²/gal planning rate" });
+      items.push({ key: "dt454_turbo", gals: sf / 155, label: "Body Coat — DT-454 Clear (Turbo)", notes: "140–170 ft²/gal · 2:1 · notch squeegee 8–12 mil WFT" });
+      items.push({ key: "epoly_pigment", gals: (sf / 155) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume (body coat)" });
+      items.push({
+        key: "ez_top_85",
+        gals: sf / 600,
+        label: "Topcoat — EZ Top 85 (Low Odor) — MCU 85 (manufacturer)",
+        notes: "600 ft²/gal min · single component · add silica wear per RES/COM spec",
+      });
       return items;
     }
   },
@@ -480,6 +550,9 @@ const SOLID_COLOR_OPTIONS = [
   "Safety Yellow",
   "White",
 ];
+
+const METALLIC_BASE_COAT_OPTIONS = ["Black", "White"];
+const METALLIC_PRIMER_TINT_OPTIONS = ["Gray", "Tan", "Clear"];
 
 const FREE_UNLOCKED_SYSTEMS = new Set(["FLK-ID-RES", "FLK-OD-RES", "SC-ID-EZ-CLEAN", "METALLIC-ID"]);
 const FREE_UNLOCKED_FINISHES = new Set(["flake", "solid", "metallic"]);
@@ -689,10 +762,9 @@ function buildOrderList(layers, tier, answers = {}) {
     const pk = resolveLayerProductKey(layer, answers);
     const prod = PRODUCTS[pk];
     if (!prod) return;
-    const tierMult = getTierMultiplierForProduct(pk, tier);
     const kits = calcKits(pk, layer.gals !== undefined ? layer.gals : 0, layer.lbs, layer.qty);
     kits.forEach(kit => {
-      const tierPrice = +(kit.msrp * tierMult).toFixed(2);
+      const tierPrice = getKitTierPrice(kit, pk, tier);
       const lineMsrp = +(kit.msrp * kit.qty).toFixed(2);
       const lineTier = +(tierPrice * kit.qty).toFixed(2);
       const totalNeededDisplay =
@@ -727,12 +799,11 @@ function getRequiredMaterialTierTotal(layers, tier, answers = {}) {
     const pk = resolveLayerProductKey(layer, answers);
     const prod = PRODUCTS[pk];
     if (!prod) return;
-    const tierMult = getTierMultiplierForProduct(pk, tier);
 
     if (layer.lbs !== undefined) {
       const lbKit = prod.kits.find((k) => k.lbs);
       if (!lbKit || !lbKit.lbs) return;
-      const tierPerLb = (lbKit.msrp * tierMult) / lbKit.lbs;
+      const tierPerLb = getKitTierPrice(lbKit, pk, tier) / lbKit.lbs;
       total += tierPerLb * layer.lbs;
       return;
     }
@@ -741,14 +812,14 @@ function getRequiredMaterialTierTotal(layers, tier, answers = {}) {
       const raw = layer.qty !== undefined ? Number(layer.qty) : 1;
       const need = Number.isFinite(raw) && raw > 0 ? raw : 1;
       const purchaseKits = Math.max(1, Math.ceil(need));
-      total += prod.kits[0].msrp * tierMult * purchaseKits;
+      total += getKitTierPrice(prod.kits[0], pk, tier) * purchaseKits;
       return;
     }
 
     const galKits = prod.kits.filter((k) => k.gals && k.gals > 0);
     if (!galKits.length) return;
     const smallestGalKit = galKits.reduce((best, kit) => (kit.gals < best.gals ? kit : best), galKits[0]);
-    const tierPerGal = (smallestGalKit.msrp * tierMult) / smallestGalKit.gals;
+    const tierPerGal = getKitTierPrice(smallestGalKit, pk, tier) / smallestGalKit.gals;
     total += tierPerGal * (layer.gals || 0);
   });
 
@@ -1288,7 +1359,12 @@ export default function App() {
   const speedIsRequired = answers.location === "exterior" && activeSystemKey === "FLK-OD-RES";
   const shouldAskUseType = !isFreePlan;
   const hasRequiredRefineAnswers = Boolean((!shouldAskUseType || answers.use) && answers.moisture && answers.cracks);
-  const hasColorSelection = Boolean(answers.color);
+  const metallicSelectedColors = Array.isArray(answers.metallicColors) ? answers.metallicColors : [];
+  const hasColorSelection = activeSystemFamily === "metallic" ? metallicSelectedColors.length > 0 : Boolean(answers.color);
+  const hasMetallicInputs =
+    activeSystemFamily === "metallic"
+      ? Boolean(answers.baseCoatColor) && Boolean(answers.metallicPrimerTint) && metallicSelectedColors.length > 0 && metallicSelectedColors.length <= 4
+      : true;
   const hasSpeedSelection = speedIsRequired ? Boolean(speed) : true;
   const visibleColorOptions =
     activeSystemFamily === "metallic"
@@ -1320,6 +1396,7 @@ export default function App() {
     sqFt !== "" &&
     hasRequiredRefineAnswers &&
     hasColorSelection &&
+    hasMetallicInputs &&
     hasSpeedSelection;
 
   function appendCalcValue(next) {
@@ -1354,7 +1431,16 @@ export default function App() {
       if (qid === "location" && val === "exterior" && next.finish && next.finish !== "flake") {
         next.finish = "";
       }
-      if (qid === "color") {
+      if (qid === "finish" && val !== "metallic") {
+        delete next.metallicColors;
+        delete next.metallicPrimerTint;
+      }
+      if (qid === "finish" && val === "metallic") {
+        if (!next.baseCoatColor) next.baseCoatColor = "Black";
+        if (!next.metallicPrimerTint) next.metallicPrimerTint = "Gray";
+        if (!Array.isArray(next.metallicColors)) next.metallicColors = [];
+      }
+      if (qid === "color" && (next.finish === "flake" || activeSystemFamily === "flake")) {
         const autoBaseCoat = getAutoBaseCoatFromFlakeColor(val);
         if (autoBaseCoat) {
           next.baseCoatColor = autoBaseCoat;
@@ -1368,6 +1454,27 @@ export default function App() {
     if (qid === "location" && val !== "exterior") {
       setFinishTypeError("");
     }
+  }
+
+  function toggleMetallicColor(colorValue) {
+    setAnswers((prev) => {
+      const current = Array.isArray(prev.metallicColors) ? prev.metallicColors : [];
+      const exists = current.includes(colorValue);
+      let nextList = current;
+      if (exists) {
+        nextList = current.filter((c) => c !== colorValue);
+      } else if (current.length < 4) {
+        nextList = [...current, colorValue];
+      } else {
+        window.alert("You can select up to 4 metallic pigments.");
+        return prev;
+      }
+      return {
+        ...prev,
+        metallicColors: nextList,
+        color: nextList.join(", "),
+      };
+    });
   }
 
   function handleFinishTypeSelect(value) {
@@ -1411,6 +1518,7 @@ export default function App() {
       hasCracks: answers.cracks === "yes",
       steps,
       speed,
+      metallicPrimerTint: answers.metallicPrimerTint || "Gray",
     };
     const layers = recommendedSystem.layers(sf, opts);
     const orderLines = buildOrderList(layers, contractorPricingTierKey, answers);
@@ -1769,7 +1877,8 @@ export default function App() {
       setAnswers((prev) => ({
         ...prev,
         color: "",
-        ...(activeSystemFamily === "flake" ? {} : { baseCoatColor: "" }),
+        ...(activeSystemFamily === "flake" ? {} : { baseCoatColor: activeSystemFamily === "metallic" ? "Black" : "" }),
+        ...(activeSystemFamily === "metallic" ? { metallicColors: [], metallicPrimerTint: "Gray" } : { metallicColors: [], metallicPrimerTint: "" }),
       }));
     }
     prevSystemFamilyRef.current = activeSystemFamily;
@@ -2672,8 +2781,8 @@ export default function App() {
                     {visibleColorOptions.map((color) => (
                       <button
                         key={color.value}
-                        style={S.colorBtn(answers.color === color.value)}
-                        onClick={() => answer("color", color.value)}
+                        style={S.colorBtn(activeSystemFamily === "metallic" ? metallicSelectedColors.includes(color.value) : answers.color === color.value)}
+                        onClick={() => (activeSystemFamily === "metallic" ? toggleMetallicColor(color.value) : answer("color", color.value))}
                       >
                         <div>
                           {isRenderableSwatchUrl(color.swatchUrl) ? (
@@ -2725,11 +2834,58 @@ export default function App() {
                               Recommended Base Coat Color: {color.recommendedBase}
                             </div>
                           )}
+                          {activeSystemFamily === "metallic" && (
+                            <div style={{ fontSize: 10, color: "#d2def1", marginTop: 2, lineHeight: 1.35 }}>
+                              {metallicSelectedColors.includes(color.value) ? "Selected" : "Tap to select"}
+                            </div>
+                          )}
                         </div>
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {activeSystemFamily === "metallic" && (
+                  <>
+                    <div style={S.sectionSub}>Metallic setup</div>
+                    <div style={S.card}>
+                      <div style={{ fontSize: 11, color: "#d2def1", marginBottom: 8 }}>
+                        Select up to 4 metallic pigments. You currently have {metallicSelectedColors.length} selected.
+                      </div>
+                      <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 6 }}>HyperPRIME MVB primer tint</div>
+                      <div style={{ ...S.optRow, marginBottom: 10 }}>
+                        {METALLIC_PRIMER_TINT_OPTIONS.map((tint) => (
+                          <button key={tint} type="button" style={S.opt(answers.metallicPrimerTint === tint)} onClick={() => answer("metallicPrimerTint", tint)}>
+                            {tint}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 6 }}>
+                        Base coat color (recommended: Black, use White for light floor designs)
+                      </div>
+                      <div style={{ ...S.optRow, marginBottom: 2 }}>
+                        {METALLIC_BASE_COAT_OPTIONS.map((baseColor) => {
+                          const match = BASE_COAT_COLOR_OPTIONS.find((c) => c.value === baseColor);
+                          return (
+                            <button
+                              key={baseColor}
+                              type="button"
+                              style={{
+                                ...S.opt(answers.baseCoatColor === baseColor),
+                                background: match?.hex || "#111827",
+                                color: match?.textColor || "#ffffff",
+                                border: answers.baseCoatColor === baseColor ? "2px solid #e33433" : "1px solid rgba(255,255,255,0.2)",
+                              }}
+                              onClick={() => answer("baseCoatColor", baseColor)}
+                            >
+                              {baseColor}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 {activeSystemFamily === "flake" && (
                   <>
