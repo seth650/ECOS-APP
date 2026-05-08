@@ -353,11 +353,11 @@ const SYSTEMS = {
       } else {
         const primerTint = String(opts.metallicPrimerTint || "Gray").trim();
         const tintIsClear = primerTint.toLowerCase() === "clear";
-        items.push({
+      items.push({
           key: tintIsClear ? "hyperprime_mvb" : "hyperprime_mvb_pig",
-          gals: sf / 225,
+          gals: sf / 200,
           label: `Primer — HyperPRIME MVB (${tintIsClear ? "Clear" : `Pigmented ${primerTint}`})`,
-          notes: "200–250 ft²/gal · used as first primer layer unless moisture is moderate/high",
+          notes: "200 ft²/gal · used as first primer layer unless moisture is moderate/high",
         });
       }
       items.push({ key: "dt454_turbo", gals: sf / 170, label: "Basecoat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1" });
@@ -948,12 +948,12 @@ function getSystemMaterialBenchmarkPerSqFt(systemKey, tierKey, answers = {}, spe
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = {
-  app: { minHeight: "100vh", background: "#000000", color: "#f4f7fb", fontFamily: "'Open Sans', sans-serif", padding: 0 },
+  app: { minHeight: "100vh", background: "#000000", color: "#f4f7fb", fontFamily: "'Open Sans', sans-serif", padding: 0, width: "100%", overflowX: "hidden" },
   header: { background: "#113a72", borderBottom: "8px solid #e33433", padding: "16px 20px", display: "flex", alignItems: "center", gap: 12 },
   logo: { width: 36, height: 36, background: "#000000", border: "1px solid #e33433", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 },
   brand: { fontSize: 9, letterSpacing: "0.22em", textTransform: "uppercase", color: "#ffffff", fontFamily: "'Encode Sans Expanded', sans-serif" },
   title: { fontSize: 15, fontWeight: 900, letterSpacing: "0.04em", color: "#ffffff", lineHeight: 1.1, fontFamily: "'Montserrat', sans-serif" },
-  body: { maxWidth: 860, margin: "0 auto", padding: "24px 16px" },
+  body: { maxWidth: 860, margin: "0 auto", padding: "24px 16px", width: "100%", overflowX: "hidden" },
   sectionHead: { fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#e33433", marginBottom: 10, paddingBottom: 5, borderBottom: "1px solid #113a72", marginTop: 24, fontFamily: "'Encode Sans Expanded', sans-serif" },
   sectionHeadGold: { fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#eab308", marginBottom: 10, paddingBottom: 5, borderBottom: "1px solid #eab308", marginTop: 24, fontFamily: "'Encode Sans Expanded', sans-serif" },
   sectionSub: { color: "#9bb2d1", fontSize: 12, marginBottom: 12 },
@@ -966,11 +966,11 @@ const S = {
   input: { background: "#000000", border: "1px solid #113a72", borderRadius: 6, color: "#f4f7fb", padding: "8px 12px", fontSize: 14, fontFamily: "'Open Sans', sans-serif", outline: "none", width: "100%", boxSizing: "border-box" },
   alert: (type) => ({ background: type === "danger" ? "#2a0b0b" : type === "warning" ? "#1f1810" : "#0a1830", border: `1px solid ${type === "danger" ? "#e33433" : type === "warning" ? "#e33433" : "#113a72"}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, color: type === "danger" ? "#ffd0d0" : type === "warning" ? "#ffe4c4" : "#d2def1", marginBottom: 6 }),
   badge: { fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, background: "#113a72", color: "#ffffff", display: "inline-block", marginBottom: 8, fontFamily: "'Encode Sans Expanded', sans-serif" },
-  tableWrap: { overflowX: "auto" },
-  table: { width: "100%", borderCollapse: "collapse", fontSize: 11 },
-  th: { textAlign: "left", padding: "6px 8px", color: "#9bb2d1", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #113a72", fontFamily: "'Encode Sans Expanded', sans-serif" },
-  td: { padding: "7px 8px", borderBottom: "1px solid #113a72", color: "#c8d6ea", verticalAlign: "top" },
-  tdBold: { padding: "7px 8px", borderBottom: "1px solid #113a72", color: "#ffffff", fontWeight: 700, verticalAlign: "top" },
+  tableWrap: { width: "100%", maxWidth: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch" },
+  table: { width: "100%", maxWidth: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" },
+  th: { textAlign: "left", padding: "6px 8px", color: "#9bb2d1", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #113a72", fontFamily: "'Encode Sans Expanded', sans-serif", overflowWrap: "anywhere", wordBreak: "break-word" },
+  td: { padding: "7px 8px", borderBottom: "1px solid #113a72", color: "#c8d6ea", verticalAlign: "top", overflowWrap: "anywhere", wordBreak: "break-word" },
+  tdBold: { padding: "7px 8px", borderBottom: "1px solid #113a72", color: "#ffffff", fontWeight: 700, verticalAlign: "top", overflowWrap: "anywhere", wordBreak: "break-word" },
   totalRow: { background: "#0a1830" },
   btn: { background: "#e33433", border: "none", borderRadius: 6, color: "#ffffff", padding: "10px 18px", fontSize: 12, letterSpacing: "0.08em", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginTop: 8 },
   btnSm: { background: "#000000", border: "1px solid #113a72", borderRadius: 5, color: "#d2def1", padding: "6px 12px", fontSize: 11, cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 },
@@ -1155,7 +1155,8 @@ export default function App() {
       ...updates,
       needsAdminReview: updates.needsAdminReview ?? false,
     };
-    const { error } = await supabase.from("profiles").update(next).eq("email", email);
+    const { billing_history, ...nextForSave } = next;
+    const { error } = await supabase.from("profiles").update(nextForSave).eq("email", email);
     if (error) {
       window.alert(error.message || "Profile update failed.");
       return false;
@@ -1293,9 +1294,12 @@ export default function App() {
 
   async function updateProfileFields(fields) {
     if (!session?.user?.id) return;
+    const safeFields = { ...(fields || {}) };
+    delete safeFields.billing_history;
+    if (!Object.keys(safeFields).length) return;
     const { data, error } = await supabase
       .from("profiles")
-      .update(fields)
+      .update(safeFields)
       .eq("id", session.user.id)
       .select()
       .single();
@@ -1303,7 +1307,7 @@ export default function App() {
       window.alert(error.message || "Unable to update profile.");
       return;
     }
-    const merged = normalizeUserProfile({ ...(userProfile || {}), ...(data || fields) });
+    const merged = normalizeUserProfile({ ...(userProfile || {}), ...(data || safeFields) });
     setUserProfile(merged);
     if (currentUser) {
       setAllProfilesByEmail((prev) => ({ ...prev, [currentUser]: merged }));
@@ -2723,6 +2727,7 @@ export default function App() {
                         key={key}
                         onClick={() => {
                           if (isLocked) {
+                            goToPlans("questions");
                             return;
                           }
                           setManualSystemKey(key);
@@ -2749,9 +2754,7 @@ export default function App() {
                           </div>
                         )}
                         <div style={{ fontSize: 10, color: isLocked ? "#f5d676" : "#d2def1" }}>
-                          {isReleaseSystem
-                            ? (isLocked ? "🔒 Locked on Free — upgrade to Tier 1 to unlock" : "Tap to use this system instead")
-                            : "🔒 Coming soon"}
+                          {isLocked ? "🔒 Unlock Tier 1" : "Tap to use this system instead"}
                         </div>
                       </button>
                     );
