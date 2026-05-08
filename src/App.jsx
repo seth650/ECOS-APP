@@ -355,9 +355,9 @@ const SYSTEMS = {
         const tintIsClear = primerTint.toLowerCase() === "clear";
         items.push({
           key: tintIsClear ? "hyperprime_mvb" : "hyperprime_mvb_pig",
-          gals: sf / 120,
+          gals: sf / 225,
           label: `Primer — HyperPRIME MVB (${tintIsClear ? "Clear" : `Pigmented ${primerTint}`})`,
-          notes: "120 ft²/gal · used as first primer layer unless moisture is moderate/high",
+          notes: "200–250 ft²/gal · used as first primer layer unless moisture is moderate/high",
         });
       }
       items.push({ key: "dt454_turbo", gals: sf / 170, label: "Basecoat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1" });
@@ -503,7 +503,7 @@ const FINISH_OPTIONS = [
 const STOCKED_COLORS = [
   { value: "Creekbed", hex: "#8B7D6B", recommendedBase: "Dover Beige" },
   { value: "Yorkshire", hex: "#B9B39F", recommendedBase: "Sable Gray" },
-  { value: "Gravel", hex: "#7F8790", recommendedBase: "Medium Gray" },
+  { value: "Gravel", hex: "#7F8790", recommendedBase: "Sable Gray" },
   { value: "Domino", hex: "#2D2F33", recommendedBase: "Sable Gray" },
   { value: "Nightfall", hex: "#1E2530", recommendedBase: "Medium Gray" },
   { value: "Tidal Wave", hex: "#3A5D76", recommendedBase: "Sable Gray" },
@@ -556,6 +556,7 @@ const METALLIC_PRIMER_TINT_OPTIONS = ["Gray", "Tan", "Clear"];
 
 const FREE_UNLOCKED_SYSTEMS = new Set(["FLK-ID-RES", "FLK-OD-RES", "SC-ID-EZ-CLEAN", "METALLIC-ID"]);
 const FREE_UNLOCKED_FINISHES = new Set(["flake", "solid", "metallic"]);
+const ACTIVE_RELEASE_SYSTEMS = new Set(["FLK-OD-RES", "SC-ID-EZ-CLEAN", "METALLIC-ID"]);
 
 function getFullLocationSystemKeys(location) {
   if (location === "exterior") return ["FLK-OD-RES"];
@@ -1104,6 +1105,9 @@ export default function App() {
   const [adminSelfSaveNotice, setAdminSelfSaveNotice] = useState("");
   const [contractorAdminDraft, setContractorAdminDraft] = useState(null);
   const [contractorAdminSaveNotice, setContractorAdminSaveNotice] = useState("");
+  const [isNarrowScreen, setIsNarrowScreen] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 760 : false
+  );
   const recommendedSectionRef = useRef(null);
   const prevSystemFamilyRef = useRef(null);
 
@@ -1398,6 +1402,11 @@ export default function App() {
     hasColorSelection &&
     hasMetallicInputs &&
     hasSpeedSelection;
+  const swatchGridColumns = isNarrowScreen
+    ? activeSystemFamily === "flake"
+      ? "repeat(3, minmax(0, 1fr))"
+      : "repeat(2, minmax(0, 1fr))"
+    : "repeat(4, minmax(0, 1fr))";
 
   function appendCalcValue(next) {
     setCalcValue((prev) => (prev === "0" ? next : `${prev}${next}`));
@@ -1883,6 +1892,12 @@ export default function App() {
     }
     prevSystemFamilyRef.current = activeSystemFamily;
   }, [activeSystemFamily]);
+
+  useEffect(() => {
+    const onResize = () => setIsNarrowScreen(window.innerWidth < 760);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     if (phase !== "account" || !currentUser || !isPricingMasterEmail(currentUser, userProfile)) return;
@@ -2695,7 +2710,8 @@ export default function App() {
                 <div style={S.sectionHead}>Other Available {answers.location === "interior" ? "Indoor" : "Outdoor"} Systems</div>
                 <div style={S.card}>
                   {otherLocationSystems.map((key) => {
-                    const isLocked = isFreePlan && !FREE_UNLOCKED_SYSTEMS.has(key);
+                    const isReleaseSystem = ACTIVE_RELEASE_SYSTEMS.has(key);
+                    const isLocked = !isReleaseSystem || (isFreePlan && !FREE_UNLOCKED_SYSTEMS.has(key));
                     const benchmarkPerSqFt = getSystemMaterialBenchmarkPerSqFt(
                       key,
                       contractorPricingTierKey,
@@ -2707,7 +2723,6 @@ export default function App() {
                         key={key}
                         onClick={() => {
                           if (isLocked) {
-                            setPhase("plans");
                             return;
                           }
                           setManualSystemKey(key);
@@ -2721,22 +2736,22 @@ export default function App() {
                           borderRadius: 8,
                           padding: "10px 10px",
                           marginBottom: 8,
-                          cursor: "pointer",
-                          opacity: isLocked ? 0.75 : 1,
+                          cursor: isLocked ? "not-allowed" : "pointer",
+                          opacity: isLocked ? 0.5 : 1,
                         }}
                       >
                         <div style={{ fontSize: 12, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 3 }}>
                           {SYSTEMS[key].code} - {SYSTEMS[key].label}
                         </div>
-                        {benchmarkPerSqFt !== null && (
+                        {isReleaseSystem && benchmarkPerSqFt !== null && (
                           <div style={{ fontSize: 10, color: "#eab308", marginBottom: 2 }}>
                             Avg materials @ {SYSTEM_BENCHMARK_SQFT} ft²: ${benchmarkPerSqFt.toFixed(2)}/ft²
                           </div>
                         )}
                         <div style={{ fontSize: 10, color: isLocked ? "#f5d676" : "#d2def1" }}>
-                          {isLocked
-                            ? "Locked on Free — upgrade to Tier 1 to unlock"
-                            : "Tap to use this system instead"}
+                          {isReleaseSystem
+                            ? (isLocked ? "🔒 Locked on Free — upgrade to Tier 1 to unlock" : "Tap to use this system instead")
+                            : "🔒 Coming soon"}
                         </div>
                       </button>
                     );
@@ -2770,11 +2785,16 @@ export default function App() {
                       ? "Solid color options"
                       : "Below are our Stocked Colors"}
                 </div>
+                {activeSystemFamily === "metallic" && (
+                  <div style={{ fontSize: 11, color: "#d2def1", marginBottom: 10 }}>
+                    Select up to 4 metallic pigments. You currently have {metallicSelectedColors.length} selected.
+                  </div>
+                )}
                 <div style={S.card}>
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                      gridTemplateColumns: swatchGridColumns,
                       gap: 8,
                     }}
                   >
@@ -2826,11 +2846,11 @@ export default function App() {
                               }}
                             />
                           )}
-                          <div style={{ fontSize: 12, fontFamily: "'Montserrat', sans-serif", fontWeight: 900, color: color.textColor || "#ffffff" }}>
+                          <div style={{ fontSize: 12, fontFamily: "'Montserrat', sans-serif", fontWeight: 900, color: color.textColor || "#ffffff", overflowWrap: "anywhere" }}>
                             {color.value}
                           </div>
                           {activeSystemFamily === "flake" && (
-                            <div style={{ fontSize: 10, color: "#d2def1", marginTop: 2, lineHeight: 1.35 }}>
+                            <div style={{ fontSize: 10, color: "#d2def1", marginTop: 2, lineHeight: 1.35, overflowWrap: "anywhere" }}>
                               Recommended Base Coat Color: {color.recommendedBase}
                             </div>
                           )}
@@ -2847,12 +2867,12 @@ export default function App() {
 
                 {activeSystemFamily === "metallic" && (
                   <>
-                    <div style={S.sectionSub}>Metallic setup</div>
+                    <div style={S.sectionSub}>Base Color Options</div>
                     <div style={S.card}>
-                      <div style={{ fontSize: 11, color: "#d2def1", marginBottom: 8 }}>
-                        Select up to 4 metallic pigments. You currently have {metallicSelectedColors.length} selected.
-                      </div>
                       <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 6 }}>HyperPRIME MVB primer tint</div>
+                      <div style={{ fontSize: 10, color: "#d2def1", marginBottom: 8 }}>
+                        Our standard primer (will be covered by base coat - we prefer Gray)
+                      </div>
                       <div style={{ ...S.optRow, marginBottom: 10 }}>
                         {METALLIC_PRIMER_TINT_OPTIONS.map((tint) => (
                           <button key={tint} type="button" style={S.opt(answers.metallicPrimerTint === tint)} onClick={() => answer("metallicPrimerTint", tint)}>
