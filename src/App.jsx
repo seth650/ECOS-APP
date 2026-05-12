@@ -353,7 +353,7 @@ const SYSTEMS = {
       } else {
         const primerTint = String(opts.metallicPrimerTint || "Gray").trim();
         const tintIsClear = primerTint.toLowerCase() === "clear";
-      items.push({
+        items.push({
           key: tintIsClear ? "hyperprime_mvb" : "hyperprime_mvb_pig",
           gals: sf / 200,
           label: `Primer — HyperPRIME MVB (${tintIsClear ? "Clear" : `Pigmented ${primerTint}`})`,
@@ -926,6 +926,19 @@ function makeSwatchKey(name = "") {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+/** Filename-only fingerprint without stripping catalog words — helps match sku-prefixed uploads. */
+function makeSwatchKeyLoose(name = "") {
+  return String(name)
+    .replace(/\.[a-z0-9]+$/i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+/** Remove leading vendor/SKU tokens like FB-903_, FB903-, SKU12_ */
+function stripLeadingSkuLooseKey(looseKey = "") {
+  return String(looseKey || "").replace(/^[a-z]{1,4}-?[0-9]{2,8}[_-]?/i, "").replace(/^[_-]+/, "");
+}
+
 const SYSTEM_BENCHMARK_SQFT = 500;
 
 function getSystemMaterialBenchmarkPerSqFt(systemKey, tierKey, answers = {}, speed = "slow") {
@@ -948,12 +961,12 @@ function getSystemMaterialBenchmarkPerSqFt(systemKey, tierKey, answers = {}, spe
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = {
-  app: { minHeight: "100vh", background: "#000000", color: "#f4f7fb", fontFamily: "'Open Sans', sans-serif", padding: 0, width: "100%", overflowX: "hidden" },
+  app: { minHeight: "100vh", background: "#000000", color: "#f4f7fb", fontFamily: "'Open Sans', sans-serif", padding: 0, width: "100%", minWidth: 0 },
   header: { background: "#113a72", borderBottom: "8px solid #e33433", padding: "16px 20px", display: "flex", alignItems: "center", gap: 12 },
   logo: { width: 36, height: 36, background: "#000000", border: "1px solid #e33433", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 },
   brand: { fontSize: 9, letterSpacing: "0.22em", textTransform: "uppercase", color: "#ffffff", fontFamily: "'Encode Sans Expanded', sans-serif" },
   title: { fontSize: 15, fontWeight: 900, letterSpacing: "0.04em", color: "#ffffff", lineHeight: 1.1, fontFamily: "'Montserrat', sans-serif" },
-  body: { maxWidth: 860, margin: "0 auto", padding: "24px 16px", width: "100%", overflowX: "hidden" },
+  body: { maxWidth: 860, margin: "0 auto", padding: "24px 16px", width: "100%", minWidth: 0, boxSizing: "border-box" },
   sectionHead: { fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#e33433", marginBottom: 10, paddingBottom: 5, borderBottom: "1px solid #113a72", marginTop: 24, fontFamily: "'Encode Sans Expanded', sans-serif" },
   sectionHeadGold: { fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#eab308", marginBottom: 10, paddingBottom: 5, borderBottom: "1px solid #eab308", marginTop: 24, fontFamily: "'Encode Sans Expanded', sans-serif" },
   sectionSub: { color: "#9bb2d1", fontSize: 12, marginBottom: 12 },
@@ -981,6 +994,8 @@ const S = {
   unitBtn: (active) => ({ padding: "7px 10px", borderRadius: 6, border: `1px solid ${active ? "#e33433" : "#113a72"}`, background: active ? "#113a72" : "#000000", color: "#fff", cursor: "pointer", fontSize: 11 }),
   colorBtn: (active) => ({
     width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
     textAlign: "left",
     borderRadius: 8,
     border: `1px solid ${active ? "#e33433" : "#113a72"}`,
@@ -988,6 +1003,8 @@ const S = {
     color: "#ffffff",
     padding: "8px",
     cursor: "pointer",
+    touchAction: "manipulation",
+    WebkitTapHighlightColor: "transparent",
   }),
   authWrap: { minHeight: "calc(100vh - 90px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 12px" },
   authCard: { width: "100%", maxWidth: 460, background: "#0a1830", border: "1px solid #113a72", borderRadius: 12, padding: 18 },
@@ -1708,17 +1725,41 @@ export default function App() {
           if (!best || key.length > best.length) best = key;
         }
       }
-      return best;
+      if (best) return best;
+      const trimmed = stripLeadingSkuLooseKey(fileKey);
+      if (trimmed && trimmed !== fileKey && trimmed.length < fileKey.length) return resolveCatalogKey(trimmed, keySet);
+      return null;
+    }
+    function resolveCatalogKeyFromFilename(filename, keySet) {
+      const normalized = makeSwatchKey(filename);
+      const loose = makeSwatchKeyLoose(filename);
+      return (
+        resolveCatalogKey(normalized, keySet) ||
+        resolveCatalogKey(loose, keySet) ||
+        resolveCatalogKey(stripLeadingSkuLooseKey(loose), keySet)
+      );
     }
     const isRenderableImage = (name = "") => /\.(png|jpe?g|webp|gif|avif|svg)$/i.test(name);
     async function listFolder(path) {
-      const { data, error } = await supabase.storage.from(SUPABASE_SWATCH_BUCKET).list(path, { limit: 300 });
-      if (error) {
-        if (mounted) console.warn("[ECOS swatches] list failed:", path || "/", error.message);
-        return [];
+      const all = [];
+      let offset = 0;
+      const limit = 1000;
+      while (mounted) {
+        const { data, error } = await supabase.storage.from(SUPABASE_SWATCH_BUCKET).list(path, {
+          limit,
+          offset,
+          sortBy: { column: "name", order: "asc" },
+        });
+        if (error) {
+          if (mounted) console.warn("[ECOS swatches] list failed:", path || "/", error.message);
+          return [];
+        }
+        const chunk = data || [];
+        all.push(...chunk);
+        if (chunk.length < limit) break;
+        offset += limit;
       }
-      if (!mounted) return [];
-      return data || [];
+      return all;
     }
     /** Folder vs file: Supabase list items often omit `id` on files — do not rely on it. */
     function hasFilenameExtension(name = "") {
@@ -1736,16 +1777,20 @@ export default function App() {
       return null;
     }
     function familyFromPath(pathKey, fileKey) {
-      if (/metallic/.test(pathKey) || metallicKeys.has(fileKey)) return "metallic";
-      if (/solid/.test(pathKey) || solidKeys.has(fileKey)) return "solid";
-      if (/flake/.test(pathKey) || flakeKeys.has(fileKey)) return "flake";
+      const pl = String(pathKey || "").toLowerCase();
+      if (pl.includes("flake")) return "flake";
+      if (pl.includes("metallic")) return "metallic";
+      if (pl.includes("solid")) return "solid";
+      if (flakeKeys.has(fileKey)) return "flake";
+      if (metallicKeys.has(fileKey)) return "metallic";
+      if (solidKeys.has(fileKey)) return "solid";
       return null;
     }
     /** When folder names omit flake/solid/metallic, infer family from which catalog key matches the filename. */
-    function inferFamilyFromCatalogKeys(fileKey) {
-      const mf = resolveCatalogKey(fileKey, flakeKeys);
-      const mm = resolveCatalogKey(fileKey, metallicKeys);
-      const ms = resolveCatalogKey(fileKey, solidKeys);
+    function inferFamilyFromCatalogKeys(filename) {
+      const mf = resolveCatalogKeyFromFilename(filename, flakeKeys);
+      const mm = resolveCatalogKeyFromFilename(filename, metallicKeys);
+      const ms = resolveCatalogKeyFromFilename(filename, solidKeys);
       const hits = [
         mf ? ["flake", mf] : null,
         mm ? ["metallic", mm] : null,
@@ -1784,12 +1829,12 @@ export default function App() {
             const pathKey = makeSwatchKey(path);
             const fileKey = makeSwatchKey(entry.name);
             let family = familyFromRelativePath(path) || familyFromPath(pathKey, fileKey);
-            let mappedFlakeKey = resolveCatalogKey(fileKey, flakeKeys);
-            let mappedMetallicKey = resolveCatalogKey(fileKey, metallicKeys);
-            let mappedSolidKey = resolveCatalogKey(fileKey, solidKeys);
+            let mappedFlakeKey = resolveCatalogKeyFromFilename(entry.name, flakeKeys);
+            let mappedMetallicKey = resolveCatalogKeyFromFilename(entry.name, metallicKeys);
+            let mappedSolidKey = resolveCatalogKeyFromFilename(entry.name, solidKeys);
 
             if (!family) {
-              const inferred = inferFamilyFromCatalogKeys(fileKey);
+              const inferred = inferFamilyFromCatalogKeys(entry.name);
               if (inferred) {
                 family = inferred.family;
                 if (family === "flake") mappedFlakeKey = inferred.mappedKey;
@@ -1811,14 +1856,36 @@ export default function App() {
                 ? `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(SUPABASE_SWATCH_BUCKET)}/${encodedPath}`
                 : "");
             if (!url) continue;
-            if (family === "flake" && mappedFlakeKey) flakeNext[mappedFlakeKey] = url;
-            if (family === "metallic" && mappedMetallicKey) metallicNext[mappedMetallicKey] = url;
-            if (family === "solid" && mappedSolidKey) solidNext[mappedSolidKey] = url;
+            if (family === "flake" && mappedFlakeKey) {
+              flakeNext[mappedFlakeKey] = url;
+              if (fileKey && fileKey !== mappedFlakeKey) flakeNext[fileKey] = url;
+            }
+            if (family === "metallic" && mappedMetallicKey) {
+              metallicNext[mappedMetallicKey] = url;
+              if (fileKey && fileKey !== mappedMetallicKey) metallicNext[fileKey] = url;
+            }
+            if (family === "solid" && mappedSolidKey) {
+              solidNext[mappedSolidKey] = url;
+              if (fileKey && fileKey !== mappedSolidKey) solidNext[fileKey] = url;
+            }
           }
         }
         depth += 1;
       }
       if (!mounted) return;
+      if (import.meta.env.DEV) {
+        const countHits = (map, set) => [...set].filter((k) => map[k]).length;
+        console.info("[ECOS swatches] mapped", {
+          flakeColors: countHits(flakeNext, flakeKeys),
+          metallicColors: countHits(metallicNext, metallicKeys),
+          solidColors: countHits(solidNext, solidKeys),
+          urls: {
+            flake: Object.keys(flakeNext).length,
+            metallic: Object.keys(metallicNext).length,
+            solid: Object.keys(solidNext).length,
+          },
+        });
+      }
       setFlakeSwatchUrls(flakeNext);
       setMetallicSwatchUrls(metallicNext);
       setSolidSwatchUrls(solidNext);
@@ -2824,6 +2891,8 @@ export default function App() {
                                 alt=""
                                 src={color.swatchUrl}
                                 draggable={false}
+                                decoding="async"
+                                loading="eager"
                                 style={{
                                   width: "100%",
                                   height: "100%",
@@ -2833,6 +2902,8 @@ export default function App() {
                                   transform: activeSystemFamily === "flake" ? "scale(1.28)" : "scale(1)",
                                   transformOrigin: "center center",
                                   display: "block",
+                                  WebkitUserSelect: "none",
+                                  userSelect: "none",
                                 }}
                               />
                             </div>
@@ -2854,7 +2925,8 @@ export default function App() {
                           </div>
                           {activeSystemFamily === "flake" && (
                             <div style={{ fontSize: 10, color: "#d2def1", marginTop: 2, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                              Recommended Base Coat Color: {color.recommendedBase}
+                              {isNarrowScreen ? "Rec. base coat:" : "Recommended Base Coat Color:"}{" "}
+                              {color.recommendedBase}
                             </div>
                           )}
                           {activeSystemFamily === "metallic" && (
