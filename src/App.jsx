@@ -976,7 +976,8 @@ const S = {
   optRow: { display: "flex", flexWrap: "wrap", gap: 8 },
   opt: (active) => ({ padding: "8px 14px", borderRadius: 6, border: active ? "1px solid #e33433" : "1px solid #113a72", background: active ? "#113a72" : "#000000", color: active ? "#ffffff" : "#afc1d9", fontSize: 12, cursor: "pointer", transition: "all 0.15s", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }),
   locationOpt: (active) => ({ width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: 8, border: active ? "1px solid #e33433" : "1px solid #113a72", background: active ? "#113a72" : "#000000", color: "#ffffff", cursor: "pointer", transition: "all 0.15s" }),
-  input: { background: "#000000", border: "1px solid #113a72", borderRadius: 6, color: "#f4f7fb", padding: "8px 12px", fontSize: 14, fontFamily: "'Open Sans', sans-serif", outline: "none", width: "100%", boxSizing: "border-box" },
+  /** 16px minimum prevents iOS Safari from auto-zooming focused inputs */
+  input: { background: "#000000", border: "1px solid #113a72", borderRadius: 6, color: "#f4f7fb", padding: "10px 12px", fontSize: 16, fontFamily: "'Open Sans', sans-serif", outline: "none", width: "100%", boxSizing: "border-box" },
   alert: (type) => ({ background: type === "danger" ? "#2a0b0b" : type === "warning" ? "#1f1810" : "#0a1830", border: `1px solid ${type === "danger" ? "#e33433" : type === "warning" ? "#e33433" : "#113a72"}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, color: type === "danger" ? "#ffd0d0" : type === "warning" ? "#ffe4c4" : "#d2def1", marginBottom: 6 }),
   badge: { fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, background: "#113a72", color: "#ffffff", display: "inline-block", marginBottom: 8, fontFamily: "'Encode Sans Expanded', sans-serif" },
   tableWrap: { width: "100%", maxWidth: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch" },
@@ -984,6 +985,73 @@ const S = {
   th: { textAlign: "left", padding: "6px 8px", color: "#9bb2d1", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #113a72", fontFamily: "'Encode Sans Expanded', sans-serif", overflowWrap: "anywhere", wordBreak: "break-word" },
   td: { padding: "7px 8px", borderBottom: "1px solid #113a72", color: "#c8d6ea", verticalAlign: "top", overflowWrap: "anywhere", wordBreak: "break-word" },
   tdBold: { padding: "7px 8px", borderBottom: "1px solid #113a72", color: "#ffffff", fontWeight: 700, verticalAlign: "top", overflowWrap: "anywhere", wordBreak: "break-word" },
+  /** Order summary / PO tables: wide layout + horizontal scroll on phones (short rows, readable columns) */
+  tableOrderWrap: {
+    width: "100%",
+    maxWidth: "100%",
+    overflowX: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehaviorX: "contain",
+    touchAction: "pan-x pan-y pinch-zoom",
+    paddingBottom: 6,
+  },
+  tableOrder: {
+    borderCollapse: "collapse",
+    fontSize: 12,
+    tableLayout: "auto",
+    width: "max-content",
+  },
+  thOrder: {
+    textAlign: "left",
+    padding: "10px 14px",
+    color: "#94a3b8",
+    fontSize: 10,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    borderBottom: "1px solid #113a72",
+    fontFamily: "'Encode Sans Expanded', sans-serif",
+    whiteSpace: "nowrap",
+  },
+  tdOrder: {
+    padding: "10px 14px",
+    borderBottom: "1px solid #113a72",
+    color: "#e2e8f0",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  tdOrderBold: {
+    padding: "10px 14px",
+    borderBottom: "1px solid #113a72",
+    color: "#ffffff",
+    fontWeight: 700,
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  tdOrderLayer: {
+    padding: "10px 14px",
+    borderBottom: "1px solid #113a72",
+    color: "#cbd5e1",
+    fontSize: 11,
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  tdOrderMuted: {
+    padding: "10px 14px",
+    borderBottom: "1px solid #113a72",
+    color: "#94a3b8",
+    fontSize: 11,
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  tdOrderWrap: {
+    padding: "10px 14px",
+    borderBottom: "1px solid #113a72",
+    color: "#d2def1",
+    verticalAlign: "middle",
+    whiteSpace: "normal",
+    maxWidth: 280,
+    lineHeight: 1.35,
+  },
   totalRow: { background: "#0a1830" },
   btn: { background: "#e33433", border: "none", borderRadius: 6, color: "#ffffff", padding: "10px 18px", fontSize: 12, letterSpacing: "0.08em", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginTop: 8 },
   btnSm: { background: "#000000", border: "1px solid #113a72", borderRadius: 5, color: "#d2def1", padding: "6px 12px", fontSize: 11, cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 },
@@ -2587,7 +2655,7 @@ export default function App() {
             {/* Tier + Job Info */}
             <div style={S.sectionHead}>Job Setup</div>
             <div style={S.card}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isNarrowScreen ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div>
                   <div style={{ fontSize: 10, color: "#d2def1", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 5, fontFamily: "'Encode Sans Expanded', sans-serif" }}>Job Name / PO #</div>
                   <input style={S.input} value={contractorName} onChange={e => setContractorName(e.target.value)} placeholder="e.g. Smith Flooring Co." />
@@ -2597,7 +2665,7 @@ export default function App() {
                   <input style={S.input} value={jobName} onChange={e => setJobName(e.target.value)} placeholder="e.g. 123 Main St Garage" />
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isNarrowScreen ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 10, color: "#d2def1", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 5, fontFamily: "'Encode Sans Expanded', sans-serif" }}>Contractor pricing (FGP Midwest)</div>
                   <div style={{ ...S.input, display: "flex", alignItems: "center", minHeight: 38 }}>
@@ -3128,50 +3196,55 @@ export default function App() {
             {/* Material Order Table */}
             <div style={S.sectionHead}>{contractorName || "Untitled Job / PO"}</div>
             <div style={{ ...S.card, padding: 0 }}>
-              <div style={S.tableWrap}>
-                <table style={S.table}>
+              {isNarrowScreen && (
+                <div style={{ fontSize: 10, color: "#64748b", padding: "10px 14px 0", lineHeight: 1.4 }}>
+                  Swipe sideways to see all columns — rows stay one line tall for easier scanning.
+                </div>
+              )}
+              <div style={S.tableOrderWrap}>
+                <table style={S.tableOrder}>
                   <thead>
                     <tr>
-                      <th style={S.th}>Product</th>
-                      <th style={S.th}>Layer</th>
-                      <th style={S.th}>Kit Size</th>
-                      <th style={S.th}>Qty</th>
-                      <th style={S.th}>Job Needs</th>
-                      <th style={S.th}>MSRP ea</th>
-                      <th style={S.th}>Your Price</th>
-                      <th style={S.th}>Line Total</th>
+                      <th style={S.thOrder}>Product</th>
+                      <th style={S.thOrder}>Layer</th>
+                      <th style={S.thOrder}>Kit Size</th>
+                      <th style={S.thOrder}>Qty</th>
+                      <th style={S.thOrder}>Job Needs</th>
+                      <th style={S.thOrder}>MSRP ea</th>
+                      <th style={S.thOrder}>Your Price</th>
+                      <th style={S.thOrder}>Line Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {results.orderLines.map((line, i) => (
                       <tr key={i}>
-                        <td style={S.tdBold}>{line.product}</td>
-                        <td style={{ ...S.td, fontSize: 10, color: "#334155" }}>{line.layer}</td>
-                        <td style={S.td}>{line.kitSize}</td>
-                        <td style={S.tdBold}>{line.qty}</td>
-                        <td style={{ ...S.td, fontSize: 10, color: "#475569" }}>{line.totalNeeded}</td>
-                        <td style={S.td}>${line.msrpEa.toFixed(2)}</td>
-                        <td style={{ ...S.td, color: "#e33433" }}>${line.tierEa.toFixed(2)}</td>
-                        <td style={S.tdBold}>${line.lineTier.toFixed(2)}</td>
+                        <td style={S.tdOrderBold}>{line.product}</td>
+                        <td style={S.tdOrderLayer}>{line.layer}</td>
+                        <td style={S.tdOrder}>{line.kitSize}</td>
+                        <td style={S.tdOrderBold}>{line.qty}</td>
+                        <td style={S.tdOrderMuted}>{line.totalNeeded}</td>
+                        <td style={S.tdOrder}>${line.msrpEa.toFixed(2)}</td>
+                        <td style={{ ...S.tdOrder, color: "#e33433" }}>${line.tierEa.toFixed(2)}</td>
+                        <td style={S.tdOrderBold}>${line.lineTier.toFixed(2)}</td>
                       </tr>
                     ))}
                     <tr style={S.totalRow}>
-                      <td colSpan={5} style={{ ...S.td, color: "#d2def1", fontSize: 10 }}>SUBTOTAL AT MSRP</td>
-                      <td colSpan={3} style={S.tdBold}>${results.totalMsrp.toFixed(2)}</td>
+                      <td colSpan={5} style={{ ...S.tdOrder, color: "#d2def1", fontSize: 11 }}>SUBTOTAL AT MSRP</td>
+                      <td colSpan={3} style={S.tdOrderBold}>${results.totalMsrp.toFixed(2)}</td>
                     </tr>
                     <tr style={S.totalRow}>
-                      <td colSpan={5} style={{ ...S.td, color: "#e33433", fontSize: 10 }}>TOTAL DISCOUNT ({TIERS[contractorPricingTierKey].label})</td>
-                      <td colSpan={3} style={{ ...S.tdBold, color: "#e33433" }}>-${results.totalDiscount.toFixed(2)}</td>
+                      <td colSpan={5} style={{ ...S.tdOrder, color: "#e33433", fontSize: 11 }}>TOTAL DISCOUNT ({TIERS[contractorPricingTierKey].label})</td>
+                      <td colSpan={3} style={{ ...S.tdOrderBold, color: "#e33433" }}>-${results.totalDiscount.toFixed(2)}</td>
                     </tr>
                     <tr style={{ ...S.totalRow, background: "#0a1f38" }}>
-                      <td colSpan={5} style={{ ...S.tdBold, color: "#ffffff", fontSize: 13 }}>CONTRACTOR PAYS</td>
-                      <td colSpan={3} style={{ ...S.tdBold, color: "#ffffff", fontSize: 15 }}>${results.totalTier.toFixed(2)}</td>
+                      <td colSpan={5} style={{ ...S.tdOrderBold, color: "#ffffff", fontSize: 13 }}>CONTRACTOR PAYS</td>
+                      <td colSpan={3} style={{ ...S.tdOrderBold, color: "#ffffff", fontSize: 15 }}>${results.totalTier.toFixed(2)}</td>
                     </tr>
                     <tr style={{ ...S.totalRow, background: "#0a1830" }}>
-                      <td colSpan={5} style={{ ...S.td, color: "#eab308", fontSize: 11 }}>
+                      <td colSpan={5} style={{ ...S.tdOrderWrap, color: "#eab308", fontSize: 11 }}>
                         Job Materials Cost Breakdown. $/ft² on {results.sf.toLocaleString()} Based on Job Requirements, not total order volume
                       </td>
-                      <td colSpan={3} style={{ ...S.tdBold, color: "#eab308", fontSize: 14 }}>
+                      <td colSpan={3} style={{ ...S.tdOrderBold, color: "#eab308", fontSize: 14 }}>
                         {results.sf > 0 ? `$${results.requiredMaterialCostPerSqFt.toFixed(2)}/ft²` : "—"}
                       </td>
                     </tr>
@@ -3187,30 +3260,35 @@ export default function App() {
                   Kit sizes optimized across all ({totalJobsInOrder} total jobs entered) jobs
                 </div>
                 <div style={{ ...S.cardGold, padding: 0 }}>
-                  <div style={S.tableWrap}>
-                    <table style={S.table}>
+                  {isNarrowScreen && (
+                    <div style={{ fontSize: 10, color: "#78716c", padding: "10px 14px 0", lineHeight: 1.4 }}>
+                      Swipe sideways to see all columns.
+                    </div>
+                  )}
+                  <div style={S.tableOrderWrap}>
+                    <table style={S.tableOrder}>
                       <thead>
                         <tr>
-                          <th style={S.th}>Product</th>
-                          <th style={S.th}>Kit Size</th>
-                          <th style={S.th}>Qty</th>
-                          <th style={S.th}>Combined Job Needs</th>
-                          <th style={S.th}>Line Total</th>
+                          <th style={S.thOrder}>Product</th>
+                          <th style={S.thOrder}>Kit Size</th>
+                          <th style={S.thOrder}>Qty</th>
+                          <th style={S.thOrder}>Combined Job Needs</th>
+                          <th style={S.thOrder}>Line Total</th>
                         </tr>
                       </thead>
                       <tbody>
                         {combinedOrderLines.map((line, i) => (
                           <tr key={i}>
-                            <td style={S.tdBold}>{line.product}</td>
-                            <td style={S.td}>{line.kitSize}</td>
-                            <td style={S.tdBold}>{line.qty}</td>
-                            <td style={S.td}>{line.totalNeeded}</td>
-                            <td style={S.tdBold}>${line.lineTier.toFixed(2)}</td>
+                            <td style={S.tdOrderBold}>{line.product}</td>
+                            <td style={S.tdOrder}>{line.kitSize}</td>
+                            <td style={S.tdOrderBold}>{line.qty}</td>
+                            <td style={S.tdOrderMuted}>{line.totalNeeded}</td>
+                            <td style={S.tdOrderBold}>${line.lineTier.toFixed(2)}</td>
                           </tr>
                         ))}
                         <tr style={{ ...S.totalRow, background: "rgba(234, 179, 8, 0.15)" }}>
-                          <td colSpan={4} style={{ ...S.tdBold, color: "#f5d676" }}>CONSOLIDATED CONTRACTOR PAYS</td>
-                          <td style={{ ...S.tdBold, color: "#f5d676" }}>${combinedTotals.totalTier.toFixed(2)}</td>
+                          <td colSpan={4} style={{ ...S.tdOrderBold, color: "#f5d676" }}>CONSOLIDATED CONTRACTOR PAYS</td>
+                          <td style={{ ...S.tdOrderBold, color: "#f5d676" }}>${combinedTotals.totalTier.toFixed(2)}</td>
                         </tr>
                       </tbody>
                     </table>
