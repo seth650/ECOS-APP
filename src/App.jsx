@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
+import { getApiBase } from "./stripeClient.js";
 
 const HEADER_LOGO_URL = "/favicon.svg";
 /** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
@@ -187,6 +188,8 @@ const PRICING_MASTER_EMAILS = ["seth@dynastyepoxy.com", "gary@dynastyepoxy.com"]
 
 /** Logins that skip “Past orders” on Account (master / Epoxy Twins); ordering profiles (e.g. Gary) keep history. */
 const ACCOUNT_HIDE_PAST_ORDERS_EMAILS = new Set(["seth@dynastyepoxy.com"]);
+/** Reserved legacy UI block on Account (kept for quick re-enable). */
+const SHOW_LEGACY_ACCOUNT_PAST_ORDERS = false;
 
 function isPricingMasterEmail(email, profile = null) {
   if (!email) return false;
@@ -220,6 +223,12 @@ function normalizeUserProfile(raw) {
   if (p.total_pos_value_this_year === undefined) p.total_pos_value_this_year = 0;
   if (!p.billing_last4) p.billing_last4 = "";
   if (!Array.isArray(p.billing_history)) p.billing_history = [];
+  if (p.stripe_customer_id === undefined || p.stripe_customer_id === null) p.stripe_customer_id = "";
+  if (p.stripe_subscription_id === undefined || p.stripe_subscription_id === null) p.stripe_subscription_id = "";
+  if (!p.subscription_status) p.subscription_status = "";
+  if (!p.subscription_current_period_end) p.subscription_current_period_end = null;
+  if (!p.grace_period_start) p.grace_period_start = null;
+  if (p.grace_email_stage === undefined || p.grace_email_stage === null) p.grace_email_stage = 0;
   return p;
 }
 
@@ -467,7 +476,7 @@ const SYSTEMS = {
     code: "GRIND & SEAL",
     priceRange: "$4–6/ft²",
     warnings: ["Cracks/defects NOT repaired by design", "Function only — not decorative", "\"This is function, not transformation\""],
-    layers: (sf, opts) => {
+    layers: (sf, _opts) => {
       const items = [];
       items.push({ key: "dt454_turbo", gals: sf / 170, label: "Prime/Base — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1 · squeegee/roll" });
       items.push({ key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY, gals: sf / 600, label: "Topcoat — Aspartic 85 Slow Go (Low Odor)", notes: "600 ft²/gal min · 0.75 lb/gal RES" });
@@ -576,15 +585,7 @@ function getFullLocationSystemKeys(location) {
   return [];
 }
 
-function getLocationSystemKeysForPlan(location, planTag = "Free") {
-  if (planTag === "Free") {
-    const keys = getFullLocationSystemKeys(location);
-    return keys.filter((k) => FREE_UNLOCKED_SYSTEMS.has(k));
-  }
-  return getFullLocationSystemKeys(location);
-}
-
-function getRecommendedSystem(answers, planTag = "Free") {
+function getRecommendedSystem(answers, _planTag = "Free") {
   const { location, finish, moisture, use } = answers;
   if (!location || !finish) return null;
 
@@ -1168,6 +1169,7 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
   const [orderSubmitMessage, setOrderSubmitMessage] = useState("");
+  const [stripeBanner, setStripeBanner] = useState("");
   const [savedOrders, setSavedOrders] = useState([]);
   const [currentPlan, setCurrentPlan] = useState("Free");
   const [poCountThisYear, setPoCountThisYear] = useState(0);
@@ -1240,7 +1242,16 @@ export default function App() {
       ...updates,
       needsAdminReview: updates.needsAdminReview ?? false,
     };
-    const { billing_history, ...nextForSave } = next;
+    const {
+      billing_history: _billingHistory,
+      stripe_customer_id: _sc,
+      stripe_subscription_id: _ss,
+      subscription_status: _ssu,
+      subscription_current_period_end: _spe,
+      grace_period_start: _gps,
+      grace_email_stage: _ges,
+      ...nextForSave
+    } = next;
     const { error } = await supabase.from("profiles").update(nextForSave).eq("email", email);
     if (error) {
       window.alert(error.message || "Profile update failed.");
@@ -1252,19 +1263,6 @@ export default function App() {
     }
     setProfileVersion((v) => v + 1);
     return true;
-  }
-
-  function saveContractorPricingForUser(targetEmail, assignedKey) {
-    return updateProfileByEmail(targetEmail, { assignedPricingTierKey: assignedKey, needsAdminReview: false });
-  }
-
-  function updateContractorPricingFlags(targetEmail, updates) {
-    return updateProfileByEmail(targetEmail, updates);
-  }
-
-  function updateUserPlanForUser(targetEmail, planTag) {
-    const membership_tier = tierTagToMembershipTier(planTag);
-    return updateProfileByEmail(targetEmail, { membership_tier });
   }
 
   function setEcosPricingAdminForUser(targetEmail, isAdmin) {
@@ -1381,6 +1379,12 @@ export default function App() {
     if (!session?.user?.id) return;
     const safeFields = { ...(fields || {}) };
     delete safeFields.billing_history;
+    delete safeFields.stripe_customer_id;
+    delete safeFields.stripe_subscription_id;
+    delete safeFields.subscription_status;
+    delete safeFields.subscription_current_period_end;
+    delete safeFields.grace_period_start;
+    delete safeFields.grace_email_stage;
     if (!Object.keys(safeFields).length) return;
     const { data, error } = await supabase
       .from("profiles")
@@ -1415,19 +1419,80 @@ export default function App() {
     }
   }
 
+  async function startTier1Checkout() {
+    if (!session?.user?.id) {
+      window.alert("Please sign in to subscribe.");
+      return;
+    }
+    const { data: authData } = await supabase.auth.getSession();
+    const token = authData?.session?.access_token;
+    if (!token) {
+      window.alert("Please sign in again.");
+      return;
+    }
+    const base = getApiBase();
+    try {
+      const res = await fetch(`${base}/api/create-checkout-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: "{}",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      if (!data.url) throw new Error("No checkout URL returned.");
+      window.location.assign(data.url);
+    } catch (e) {
+      window.alert(e?.message || "Could not start checkout. Is the API deployed (Vercel) and env vars set?");
+    }
+  }
+
+  async function openStripeCustomerPortal() {
+    const { data: authData } = await supabase.auth.getSession();
+    const token = authData?.session?.access_token;
+    if (!token) {
+      window.alert("Please sign in again.");
+      return;
+    }
+    const cid = String(normalizeUserProfile(userProfile || {}).stripe_customer_id || "").trim();
+    if (!cid) {
+      window.alert("No Stripe billing profile yet. Complete a Tier 1 subscription checkout first.");
+      return;
+    }
+    const base = getApiBase();
+    try {
+      const res = await fetch(`${base}/api/create-portal-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: "{}",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      if (!data.url) throw new Error("No portal URL returned.");
+      window.location.assign(data.url);
+    } catch (e) {
+      window.alert(e?.message || "Could not open billing portal.");
+    }
+  }
+
   async function chooseMembershipPlan(planId) {
     if (!session?.user?.id) {
       setPhase("questions");
       return;
     }
     if (planId === "tier1") {
-      window.alert("Stripe integration coming soon.");
+      await startTier1Checkout();
       return;
     }
     const tier = planId === "tier2" ? "tier2" : "free";
     try {
       await updateProfileFields({ membership_tier: tier });
-    } catch (_) {
+    } catch {
       // Keep navigation responsive even if profile write is blocked.
     }
     setCurrentPlan(membershipTierToPlanTag(tier));
@@ -1703,6 +1768,7 @@ export default function App() {
     }
   }, [phase]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: bootstrap once per profileVersion
   useEffect(() => {
     let mounted = true;
     async function bootstrapAuth() {
@@ -1777,6 +1843,71 @@ export default function App() {
       setAuthError("");
     }
   }, []);
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const params = new URLSearchParams(window.location.search);
+    const checkout = params.get("checkout");
+    const portal = params.get("portal");
+    if (!checkout && !portal) return;
+
+    const sessionId = params.get("session_id");
+    const u = new URL(window.location.href);
+    u.searchParams.delete("checkout");
+    u.searchParams.delete("session_id");
+    u.searchParams.delete("portal");
+    window.history.replaceState({}, "", u.pathname + u.search);
+
+    if (checkout === "cancelled") {
+      setStripeBanner("Payment cancelled — you remain on the Free plan.");
+      return;
+    }
+    if (portal === "return") {
+      setStripeBanner("Returned from Stripe billing. Refreshing your profile…");
+      (async () => {
+        const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
+        if (data) {
+          setUserProfile(normalizeUserProfile(data));
+          setCurrentPlan(membershipTierToPlanTag(data.membership_tier || "free"));
+        }
+        setStripeBanner("Billing portal closed. Subscription details below should update within a minute.");
+      })();
+      return;
+    }
+    if (checkout === "success") {
+      (async () => {
+        try {
+          const { data: authData } = await supabase.auth.getSession();
+          const token = authData?.session?.access_token;
+          const base = getApiBase();
+          if (sessionId && token) {
+            const r = await fetch(`${base}/api/sync-checkout-session`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ sessionId }),
+            });
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              console.warn("[sync-checkout-session]", j?.error || r.status);
+            }
+          }
+          const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
+          if (data) {
+            setUserProfile(normalizeUserProfile(data));
+            setCurrentPlan(membershipTierToPlanTag(data.membership_tier || "free"));
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        setStripeBanner(
+          "Checkout complete. Tier 1 should unlock automatically; if your plan still shows Free after ~1 minute, refresh this page (Stripe webhooks finalize your profile)."
+        );
+      })();
+    }
+  }, [session?.user?.id]);
 
   useEffect(() => {
     let mounted = true;
@@ -2328,7 +2459,7 @@ export default function App() {
         Object.keys(window.localStorage)
           .filter((k) => k.startsWith("sb-") && k.endsWith("-auth-token"))
           .forEach((k) => window.localStorage.removeItem(k));
-      } catch (_) {
+      } catch {
         // ignore
       }
       setSession(null);
@@ -2497,6 +2628,23 @@ export default function App() {
       </div>
 
       <div style={S.body}>
+        {stripeBanner && (
+          <div
+            style={{
+              ...S.alert("warning"),
+              marginBottom: 12,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: 10,
+            }}
+          >
+            <span>{stripeBanner}</span>
+            <button type="button" style={{ ...S.btnSm, flexShrink: 0 }} onClick={() => setStripeBanner("")}>
+              Dismiss
+            </button>
+          </div>
+        )}
         {isAuthLoading && (
           <div style={S.authWrap}>
             <div style={S.authCard}>
@@ -3443,6 +3591,35 @@ export default function App() {
               </div>
               <div style={{ fontSize: 12, color: "#d2def1", lineHeight: 1.6 }}>
                 <div><span style={{ color: "#9bb2d1" }}>ECOS app plan:</span> <span style={{ color: "#ffffff" }}>{currentPlan}</span></div>
+                {membershipTier === "tier1" && activeUserProfile?.grace_period_start && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#fca5a5", lineHeight: 1.45 }}>
+                    Payment issue: your subscription is past due. Check your email for reminders, then use <strong>Manage Billing</strong> below to update your card.
+                  </div>
+                )}
+                {membershipTier === "tier1" && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
+                    <div style={{ fontSize: 10, color: "#9bb2d1", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6, fontFamily: "'Encode Sans Expanded', sans-serif" }}>
+                      Stripe subscription
+                    </div>
+                    <div>
+                      <span style={{ color: "#9bb2d1" }}>Status:</span>{" "}
+                      <span style={{ color: "#ffffff" }}>{activeUserProfile?.subscription_status || "—"}</span>
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      <span style={{ color: "#9bb2d1" }}>Next billing:</span>{" "}
+                      <span style={{ color: "#ffffff" }}>
+                        {activeUserProfile?.subscription_current_period_end
+                          ? new Date(activeUserProfile.subscription_current_period_end).toLocaleString()
+                          : "—"}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => openStripeCustomerPortal()}>
+                        Manage Billing
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div><span style={{ color: "#9bb2d1" }}>POs used this year:</span> <span style={{ color: "#ffffff" }}>{poCountThisYear}{membershipTier === "tier1" ? ` / ${MAX_TIER1_POS_PER_YEAR}` : ""}</span></div>
                 <div><span style={{ color: "#9bb2d1" }}>Signup anniversary:</span> <span style={{ color: "#ffffff" }}>{new Date((userProfile?.signup_anniversary_date || Date.now())).toLocaleDateString()}</span></div>
                 {!isCurrentUserPricingMaster && !activeUserProfile?.contractorPricingApplicationReceived && (
@@ -3925,7 +4102,7 @@ export default function App() {
               </>
             )}
 
-            {false && !ACCOUNT_HIDE_PAST_ORDERS_EMAILS.has(currentUser.trim().toLowerCase()) && (
+            {SHOW_LEGACY_ACCOUNT_PAST_ORDERS && !ACCOUNT_HIDE_PAST_ORDERS_EMAILS.has(currentUser.trim().toLowerCase()) && (
               <>
                 <div style={S.sectionHead}>Past Orders Submitted</div>
                 <div style={S.card}>
@@ -3991,7 +4168,7 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                <button type="button" style={{ ...S.btn, marginTop: 12 }} onClick={() => setPhase("plans")}>
+                <button type="button" style={{ ...S.btn, marginTop: 12 }} onClick={() => startTier1Checkout()}>
                   Upgrade to Tier 1 — $49/mo
                 </button>
               </div>
