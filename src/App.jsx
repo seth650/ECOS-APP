@@ -1481,6 +1481,12 @@ export default function App() {
   }
 
   async function chooseMembershipPlan(planId) {
+    console.log("[ECOS chooseMembershipPlan:start]", {
+      planId,
+      sessionUserId: session?.user?.id,
+      currentUser,
+      membershipTier,
+    });
     if (!session?.user?.id) {
       setPhase("questions");
       return;
@@ -4245,7 +4251,14 @@ export default function App() {
                   <li>Job Card printing (2 per page)</li>
                   <li>Upgrade prompts at 45 POs</li>
                 </ul>
-                <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={() => chooseMembershipPlan("tier1")}>
+                <button
+                  type="button"
+                  style={{ ...S.btn, width: "100%", marginTop: 0 }}
+                  onClick={() => {
+                    console.log("BUTTON CLICKED");
+                    chooseMembershipPlan("tier1");
+                  }}
+                >
                   Upgrade to Tier 1 — $49/mo
                 </button>
               </div>
