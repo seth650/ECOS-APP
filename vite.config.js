@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
+// Redeploy trigger (no functional change).
 export default defineConfig({
   plugins: [react()],
   server: {
