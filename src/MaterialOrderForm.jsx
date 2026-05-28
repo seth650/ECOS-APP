@@ -73,11 +73,17 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
     setLines((prev) => prev.filter((l) => l.id !== id));
   }
 
+  /** Submit handler (no separate handleSubmit — wired via button onClick). */
   async function submitOrder() {
-    if (!session?.user?.id || lines.length === 0) {
-      setMessage("Add at least one line item before submitting.");
+    if (lines.length === 0) {
+      setMessage("Add at least one line with “+ Add line” before submitting.");
       return;
     }
+    if (!session?.user?.id) {
+      setMessage("Session expired — log out and log back in, then try again.");
+      return;
+    }
+    if (submitting) return;
     setSubmitting(true);
     setMessage("Submitting material order…");
     const items = lines.map(({ id: _id, ...rest }) => rest);
@@ -279,11 +285,23 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
         </div>
       )}
 
+      {lines.length === 0 && (
+        <div style={{ marginTop: 10, fontSize: 10, color: "#9bb2d1" }}>
+          Pick a product, set qty, then tap <strong style={{ color: "#fff" }}>+ Add line</strong> before submitting.
+        </div>
+      )}
+
       <button
         type="button"
-        style={{ ...S.btn, width: "100%", marginTop: 12, opacity: submitting || lines.length === 0 ? 0.6 : 1 }}
-        disabled={submitting || lines.length === 0}
-        onClick={submitOrder}
+        style={{
+          ...S.btn,
+          width: "100%",
+          marginTop: 12,
+          opacity: submitting ? 0.7 : lines.length === 0 ? 0.85 : 1,
+          cursor: submitting ? "wait" : "pointer",
+        }}
+        disabled={submitting}
+        onClick={() => submitOrder()}
       >
         {submitting ? "Submitting…" : "Submit material PO"}
       </button>
