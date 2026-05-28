@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { getApiBase } from "./stripeClient.js";
+import {
+  PRODUCTS,
+  EPOLY_PIGMENT_RETAIL_32OZ_USD,
+  resolveEpolyProductKey,
+  resolveLayerProductKey,
+} from "./products.js";
+import MaterialOrderForm from "./MaterialOrderForm.jsx";
 
 const HEADER_LOGO_URL = "/favicon.svg";
 /** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
@@ -11,96 +18,6 @@ const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "
 // SurfKoat MCU 85        = EZ Top 85 (Epoxy Twins PL)
 // SurfKoat 1040 BondKoat = HydroPrime 40 (Epoxy Twins PL; tint EpoTint-WB vs mfg Epopac WB)
 // Rapid Set 100          = Patch Pro 10X (ET PL)
-
-// ─── PRODUCT CATALOG ─────────────────────────────────────────────────────────
-// MSRP kit pricing aligned to FGP Midwest master list (Apr 2026 export).
-
-/** E-Poly 32oz stocking colors — retail MSRP each (secondary-sheet accessory model). */
-const EPOLY_PIGMENT_RETAIL_32OZ_USD = {
-  Black: 39.8,
-  "Metal Gray": 40.2,
-  "Medium Gray": 40.9,
-  "Sable Gray": 44.3,
-  White: 52.6,
-  "Dover Beige": 44.5,
-  Tan: 43.2,
-};
-
-function buildEpolyPigmentProductMap() {
-  const m = {};
-  for (const [color, msrp] of Object.entries(EPOLY_PIGMENT_RETAIL_32OZ_USD)) {
-    const slug = color.toLowerCase().replace(/\s+/g, "_");
-    m[`epoly_pigment_${slug}`] = {
-      name: `E-Poly Pigment — ${color}`,
-      pricingModel: "accessory",
-      kits: [{ size: "32oz", gals: 0.25, msrp }],
-    };
-  }
-  m.epoly_pigment_nonstock = {
-    name: "E-Poly Pigment (specialty tint)",
-    pricingModel: "accessory",
-    kits: [{ size: "32oz", gals: 0.25, msrp: 39.8 }],
-  };
-  return m;
-}
-
-function resolveEpolyProductKey(baseCoatColor) {
-  const c = baseCoatColor || "Black";
-  if (EPOLY_PIGMENT_RETAIL_32OZ_USD[c] != null) {
-    return `epoly_pigment_${c.toLowerCase().replace(/\s+/g, "_")}`;
-  }
-  return "epoly_pigment_nonstock";
-}
-
-function resolveLayerProductKey(layer, answers) {
-  if (layer.key !== "epoly_pigment") return layer.key;
-  // Solid systems tint from selected color; flake systems tint from selected base coat color.
-  return resolveEpolyProductKey(answers?.baseCoatColor || answers?.color);
-}
-
-// MSRP kit pricing aligned to FGP Midwest master list (Apr 2026 export). E-Poly = per-color variants.
-const PRODUCTS = {
-  dt454_clear:    { name: "DT-454 Clear",        kits: [{ size: "3 gal", gals: 3, msrp: 210 }, { size: "15 gal", gals: 15, msrp: 975 }] },
-  dt454_turbo:    { name: "DT-454 Clear (Turbo)", kits: [{ size: "3 gal", gals: 3, msrp: 210 }, { size: "15 gal", gals: 15, msrp: 975 }] },
-  hyperbond:      { name: "HyperBond (Clear)",    kits: [{ size: "3 gal", gals: 3, msrp: 195 }, { size: "15 gal", gals: 15, msrp: 870 }] },
-  mv2112:         { name: "MV 2112 (MVB)",        kits: [{ size: "3 gal", gals: 3, msrp: 360 }, { size: "15 gal", gals: 15, msrp: 1575 }] },
-  hyperprime_mvb: {
-    name: "HyperPrime MVB (Clear)",
-    kits: [{ size: "3 gal", gals: 3, msrp: 177, tierPrices: { small: 168.15, tier2: 159.3, preferred: 150.45 } }, { size: "15 gal", gals: 15, msrp: 855, tierPrices: { small: 812.25, tier2: 769.5, preferred: 726.75 } }],
-  },
-  polyurea_slow:  { name: "Polyurea Basecoat (Slow)",   kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
-  polyurea_med:   { name: "Polyurea Basecoat (Medium)", kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
-  polyurea_fast:  { name: "Polyurea Basecoat (Fast)",   kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
-  aspartic85:     { name: "Aspartic 85 Slow Go (Low Odor)", kits: [{ size: "3 gal", gals: 3, msrp: 300 }, { size: "15 gal", gals: 15, msrp: 1475 }] },
-  ez_top_85:      {
-    name: "EZ Top 85 (MCU 85 mfg) — with WearMax",
-    kits: [{ size: "1 gal", gals: 1, msrp: 158.8, tierPrices: { small: 130.77, tier2: 121.43, preferred: 112.09 } }],
-  },
-  hydroprime:     { name: "HydroPrime (ET)",       kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
-  hydroprime_40:  { name: "HydroPrime 40 (Bond / primer — 1040 BondKoat PL)", kits: [{ size: "2 gal", gals: 2, msrp: 165 }, { size: "10 gal", gals: 10, msrp: 924.68 }] },
-  maxx_flow:      { name: "Maxx Flow (Metallic)",  kits: [{ size: "3 gal", gals: 3, msrp: 360 }, { size: "15 gal", gals: 15, msrp: 1550 }] },
-  hyperflow:      { name: "HyperFLOW (Metallic Artistic Layer)", kits: [{ size: "3 gal", gals: 3, msrp: 360 }, { size: "15 gal", gals: 15, msrp: 1550 }] },
-  hyperprime_mvb_pig: {
-    name: "HyperPRIME MVB (Pigmented)",
-    kits: [{ size: "3 gal", gals: 3, msrp: 195, tierPrices: { small: 185.25, tier2: 175.5, preferred: 165.75 } }, { size: "15 gal", gals: 15, msrp: 960, tierPrices: { small: 912, tier2: 864, preferred: 816 } }],
-  },
-  metallic_mica_4oz: {
-    name: "Metallic Pigment (Mica) — 4oz jar",
-    pricingModel: "accessory",
-    kits: [{ size: "4 oz jar", gals: 0, qtyUnit: "jar", msrp: 12.5, tierPrices: { small: 12.5, tier2: 12.5, preferred: 11.88 } }],
-  },
-  wearmax_3lb: {
-    name: "WearMax — 3 lb jar",
-    pricingModel: "accessory",
-    kits: [{ size: "3 lb jar", lbs: 3, msrp: 26.74, tierPrices: { small: 22.02, tier2: 20.45, preferred: 18.88 } }],
-  },
-  ...buildEpolyPigmentProductMap(),
-  patch_pro_10x:  { name: "Patch Pro 10X (ET)",    kits: [{ size: "2 gal", gals: 2, msrp: 146.07 }] },
-  hypercure:      { name: "HyperCURE",             kits: [{ size: "0.5 gal", gals: 0.5, msrp: 100.1 }] },
-  flake_14:       { name: "Decorative Flake 1/4\"", kits: [{ size: "40lb box", gals: 0, lbs: 40, msrp: 95 }] },
-  quartz_agg:     { name: "Colored Quartz Aggregate", pricingModel: "accessory", kits: [{ size: "50lb bag", gals: 0, lbs: 50, msrp: 25 }] },
-  silica_sand:    { name: "20/40 Mesh Silica Sand", kits: [{ size: "50lb bag", gals: 0, lbs: 50, msrp: 18 }] },
-};
 
 // Default polyaspartic topcoat used by system logic.
 const DEFAULT_POLYASPARTIC_TOPCOAT_KEY = "aspartic85";
@@ -229,6 +146,7 @@ function normalizeUserProfile(raw) {
   if (!p.subscription_current_period_end) p.subscription_current_period_end = null;
   if (!p.grace_period_start) p.grace_period_start = null;
   if (p.grace_email_stage === undefined || p.grace_email_stage === null) p.grace_email_stage = 0;
+  if (p.contractor_tier === undefined || p.contractor_tier === null) p.contractor_tier = "";
   return p;
 }
 
@@ -1174,6 +1092,7 @@ export default function App() {
   const [currentPlan, setCurrentPlan] = useState("Free");
   const [poCountThisYear, setPoCountThisYear] = useState(0);
   const [poHistory, setPoHistory] = useState([]);
+  const [materialOrderHistory, setMaterialOrderHistory] = useState([]);
   const [finishTypeError, setFinishTypeError] = useState("");
   /** Screen to return to when leaving Plan Comparison */
   const [plansReturnPhase, setPlansReturnPhase] = useState("questions");
@@ -1347,6 +1266,20 @@ export default function App() {
     }
     setUserProfile(normalizeUserProfile(data || seed));
     return data;
+  }
+
+  async function loadMaterialOrderHistory(activeSession) {
+    if (!activeSession?.user?.id) return;
+    const { data, error } = await supabase
+      .from("material_orders")
+      .select("*")
+      .eq("user_id", activeSession.user.id)
+      .order("created_at", { ascending: false });
+    if (error) {
+      if (error.code === "42P01" || /material_orders/i.test(error.message || "")) return;
+      throw error;
+    }
+    setMaterialOrderHistory(data || []);
   }
 
   async function loadPoHistory(activeSession, profileForWindow = null) {
@@ -1792,6 +1725,7 @@ export default function App() {
             setContractorPricingTierKey(getEffectiveContractorPricingTierKey(p || {}));
             setAssignedPricingTierKey(normalizeUserProfile(p || {}).assignedPricingTierKey || "msrp");
             await loadPoHistory(activeSession, p);
+            await loadMaterialOrderHistory(activeSession);
             await loadAdminProfiles(activeSession);
           } catch (err) {
             setAuthError(err?.message || "Unable to load your account profile.");
@@ -1803,6 +1737,7 @@ export default function App() {
           setContractorPricingTierKey("msrp");
           setAssignedPricingTierKey("msrp");
           setPoHistory([]);
+          setMaterialOrderHistory([]);
           setPoCountThisYear(0);
         }
       } finally {
@@ -1821,6 +1756,7 @@ export default function App() {
         setContractorPricingTierKey("msrp");
         setAssignedPricingTierKey("msrp");
         setPoHistory([]);
+        setMaterialOrderHistory([]);
         setPoCountThisYear(0);
         return;
       }
@@ -1830,6 +1766,7 @@ export default function App() {
         setContractorPricingTierKey(getEffectiveContractorPricingTierKey(p || {}));
         setAssignedPricingTierKey(normalizeUserProfile(p || {}).assignedPricingTierKey || "msrp");
         await loadPoHistory(nextSession, p);
+        await loadMaterialOrderHistory(nextSession);
         await loadAdminProfiles(nextSession);
       } catch (err) {
         setAuthError(err?.message || "Unable to refresh your session.");
@@ -4179,29 +4116,55 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <div style={S.card}>
-                {poHistory.length === 0 ? (
-                  <div style={{ fontSize: 11, color: "#9bb2d1" }}>No submitted orders yet.</div>
-                ) : (
-                  poHistory.map((o, i) => (
-                    <div key={`${o.id || o.created_at}-${i}`} style={{ borderBottom: "1px solid #113a72", padding: "10px 0" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        <div>
-                          <div style={{ fontSize: 12, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>
-                            {o.job_name || o.jobNamePo || "Untitled Job / PO"}
-                          </div>
-                          <div style={{ fontSize: 10, color: "#9bb2d1" }}>
-                            {new Date(o.created_at).toLocaleDateString()} · {o.system_code || o.systemCode || "—"} · {Number(o.sq_footage || o.sqFt || 0).toLocaleString()} ft² · ${Number(o.total_cost || o.totalTier || 0).toFixed(2)}
-                          </div>
-                        </div>
-                        <button type="button" style={S.btnSm} onClick={() => printJobCard(o)}>
-                          Print Job Card
-                        </button>
-                      </div>
+              <>
+                <MaterialOrderForm
+                  styles={S}
+                  userProfile={userProfile}
+                  session={session}
+                  onOrderSaved={(row) => setMaterialOrderHistory((prev) => [row, ...prev])}
+                />
+                {materialOrderHistory.length > 0 && (
+                  <div style={{ ...S.card, marginTop: 12 }}>
+                    <div style={{ fontSize: 11, color: "#9bb2d1", marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                      Material PO history
                     </div>
-                  ))
+                    {materialOrderHistory.map((o, i) => (
+                      <div key={`mat-${o.id || i}`} style={{ borderBottom: "1px solid #113a72", padding: "8px 0" }}>
+                        <div style={{ fontSize: 12, color: "#fff", fontWeight: 900 }}>
+                          Material PO · ${Number(o.total_price || 0).toFixed(2)}
+                        </div>
+                        <div style={{ fontSize: 10, color: "#9bb2d1" }}>
+                          {new Date(o.created_at).toLocaleString()} · {Array.isArray(o.items) ? o.items.length : 0} line(s) · saved ${Number(o.total_discount || 0).toFixed(2)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
-              </div>
+                <div style={{ ...S.sectionHead, marginTop: 20 }}>System calculator POs</div>
+                <div style={S.card}>
+                  {poHistory.length === 0 ? (
+                    <div style={{ fontSize: 11, color: "#9bb2d1" }}>No submitted calculator POs yet.</div>
+                  ) : (
+                    poHistory.map((o, i) => (
+                      <div key={`${o.id || o.created_at}-${i}`} style={{ borderBottom: "1px solid #113a72", padding: "10px 0" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ fontSize: 12, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>
+                              {o.job_name || o.jobNamePo || "Untitled Job / PO"}
+                            </div>
+                            <div style={{ fontSize: 10, color: "#9bb2d1" }}>
+                              {new Date(o.created_at).toLocaleDateString()} · {o.system_code || o.systemCode || "—"} · {Number(o.sq_footage || o.sqFt || 0).toLocaleString()} ft² · ${Number(o.total_cost || o.totalTier || 0).toFixed(2)}
+                            </div>
+                          </div>
+                          <button type="button" style={S.btnSm} onClick={() => printJobCard(o)}>
+                            Print Job Card
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
             )}
             <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setPhase("questions")}>
               Back to App
