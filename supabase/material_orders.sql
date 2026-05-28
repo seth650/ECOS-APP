@@ -34,3 +34,8 @@ drop policy if exists material_orders_insert_own on public.material_orders;
 create policy material_orders_insert_own on public.material_orders
   for insert to authenticated
   with check (auth.uid() = user_id);
+
+-- Required for client (anon key + logged-in user) to insert/select
+grant usage on schema public to anon, authenticated;
+grant select, insert on public.material_orders to authenticated;
+grant select on public.material_orders to anon;

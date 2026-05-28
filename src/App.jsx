@@ -4121,7 +4121,10 @@ export default function App() {
                   styles={S}
                   userProfile={userProfile}
                   session={session}
-                  onOrderSaved={(row) => setMaterialOrderHistory((prev) => [row, ...prev])}
+                  onOrderSaved={async (row) => {
+                    setMaterialOrderHistory((prev) => [row, ...prev]);
+                    if (session?.user?.id) await loadMaterialOrderHistory(session);
+                  }}
                 />
                 {materialOrderHistory.length > 0 && (
                   <div style={{ ...S.card, marginTop: 12 }}>

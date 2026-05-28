@@ -98,8 +98,19 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       created_at: new Date().toISOString(),
     };
     try {
-      const { data: inserted, error } = await supabase.from("material_orders").insert(record).select().single();
-      if (error) throw error;
+      // Client insert only — send-po-email does NOT write to Supabase (orders vs material_orders).
+      const { data: inserted, error } = await supabase.from("material_orders").insert(record).select("*").single();
+      if (error) {
+        console.error("[material-order] Supabase insert failed", error);
+        const detail = [error.message, error.details, error.hint].filter(Boolean).join(" — ");
+        throw new Error(detail || "Could not save to material_orders.");
+      }
+      if (!inserted?.id) {
+        console.error("[material-order] insert returned no row", { record });
+        throw new Error(
+          "No row returned after insert. Run supabase/material_orders.sql in Supabase and confirm RLS insert/select policies."
+        );
+      }
 
       const apiBase = getApiBase();
       const emailRes = await fetch(`${apiBase}/api/send-po-email`, {
