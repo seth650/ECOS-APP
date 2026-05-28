@@ -5,6 +5,7 @@ import {
   syncProfileFromCheckoutSession,
   applySubscriptionToUserProfile,
   updateProfileByStripeSubscription,
+  stripePeriodEndIso,
 } from "./_lib/stripeProfileSync.js";
 import { sendGraceEmail } from "./_lib/sendGraceEmail.js";
 
@@ -73,7 +74,7 @@ export default async function handler(req, res) {
         await updateProfileByStripeSubscription(admin, sub.id, {
           membership_tier: "tier1",
           subscription_status: sub.status,
-          subscription_current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+          subscription_current_period_end: stripePeriodEndIso(sub.current_period_end),
           grace_period_start: null,
           grace_email_stage: 0,
         });
@@ -108,7 +109,7 @@ export default async function handler(req, res) {
         const sub = event.data.object;
         await updateProfileByStripeSubscription(admin, sub.id, {
           subscription_status: sub.status,
-          subscription_current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+          subscription_current_period_end: stripePeriodEndIso(sub.current_period_end),
         });
         break;
       }
