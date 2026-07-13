@@ -75,6 +75,12 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
 
   /** Submit handler (no separate handleSubmit — wired via button onClick). */
   async function submitOrder() {
+    console.log("[material-order] submitOrder START", {
+      linesCount: lines.length,
+      userId: session?.user?.id,
+      submitting,
+      tierKey,
+    });
     if (lines.length === 0) {
       setMessage("Add at least one line with “+ Add line” before submitting.");
       return;
@@ -99,7 +105,9 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
     };
     try {
       // Client insert only — send-po-email does NOT write to Supabase (orders vs material_orders).
+      console.log("[material-order] BEFORE Supabase insert", { table: "material_orders", record });
       const { data: inserted, error } = await supabase.from("material_orders").insert(record).select("*").single();
+      console.log("[material-order] INSERT RESPONSE", { data: inserted, error });
       if (error) {
         console.error("[material-order] Supabase insert failed", error);
         const detail = [error.message, error.details, error.hint].filter(Boolean).join(" — ");
@@ -113,7 +121,9 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       }
 
       const apiBase = getApiBase();
-      const emailRes = await fetch(`${apiBase}/api/send-po-email`, {
+      const emailUrl = `${apiBase}/api/send-po-email`;
+      console.log("[material-order] BEFORE email API call", { emailUrl, orderId: inserted.id });
+      const emailRes = await fetch(emailUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -122,15 +132,21 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
           tierLabel,
         }),
       });
+      const emailBody = await emailRes.json().catch(() => ({}));
+      console.log("[material-order] EMAIL RESPONSE", {
+        status: emailRes.status,
+        ok: emailRes.ok,
+        body: emailBody,
+      });
       if (!emailRes.ok) {
-        const errJson = await emailRes.json().catch(() => ({}));
-        throw new Error(errJson?.error || "Order saved but email to FGP failed.");
+        throw new Error(emailBody?.error || "Order saved but email to FGP failed.");
       }
 
       setLines([]);
       setMessage("Material order submitted. Gary has been emailed a copy.");
       onOrderSaved?.(inserted);
     } catch (e) {
+      console.error("[material-order] submitOrder FAILED", e);
       setMessage(e?.message || "Could not submit material order.");
     } finally {
       setSubmitting(false);
