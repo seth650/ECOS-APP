@@ -1,0 +1,14 @@
+ECOS auth email branding — install in Supabase Dashboard
+
+1) Open Supabase → Authentication → Email Templates
+2) Confirm signup
+   - Subject: Confirm your ECOS account
+   - Body: paste confirm.html (entire file)
+3) Reset password
+   - Subject: Reset your ECOS password
+   - Body: paste recovery.html (entire file)
+4) Authentication → URL Configuration
+   - Site URL should be your production app (e.g. https://epoxyquoting.com)
+   so {{ .SiteURL }}/favicon.svg resolves for the logo
+
+Colors: navy #0a1830 / #113a72, red #e33433, gold #f5d676 on black.

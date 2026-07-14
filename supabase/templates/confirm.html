@@ -1,0 +1,69 @@
+<!--
+  ECOS — Confirm signup email
+  Paste into Supabase Dashboard → Authentication → Email Templates → Confirm signup
+  Subject: Confirm your ECOS account
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Confirm your ECOS account</title>
+  </head>
+  <body style="margin:0;padding:0;background:#000000;font-family:Montserrat,Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#000000;padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background:#0a1830;border:1px solid #113a72;border-radius:12px;overflow:hidden;">
+            <tr>
+              <td style="background:linear-gradient(180deg,#113a72 0%,#0a1830 100%);padding:22px 24px;border-bottom:3px solid #e33433;">
+                <img src="{{ .SiteURL }}/favicon.svg" width="44" height="44" alt="Epoxy Twins" style="display:block;border-radius:8px;margin-bottom:12px;" />
+                <div style="font-family:'Encode Sans Expanded',Arial,sans-serif;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:#9bb2d1;margin-bottom:6px;">
+                  An Epoxy Twins Product
+                </div>
+                <div style="font-family:Montserrat,Arial,sans-serif;font-weight:900;font-size:22px;color:#ffffff;line-height:1.2;">
+                  Welcome to ECOS
+                </div>
+                <div style="font-family:Open Sans,Arial,sans-serif;font-size:13px;color:#d2def1;margin-top:6px;">
+                  Epoxy Contractor Operating System
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px;">
+                <p style="margin:0 0 14px;font-family:Open Sans,Arial,sans-serif;font-size:14px;line-height:1.55;color:#d2def1;">
+                  Confirm your email to activate your account and start quoting jobs with FGP Midwest material logic built in.
+                </p>
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:18px 0;">
+                  <tr>
+                    <td style="border-radius:6px;background:#e33433;">
+                      <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:12px 22px;font-family:Montserrat,Arial,sans-serif;font-weight:900;font-size:13px;letter-spacing:0.06em;color:#ffffff;text-decoration:none;">
+                        CONFIRM EMAIL
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 8px;font-family:Open Sans,Arial,sans-serif;font-size:12px;line-height:1.5;color:#9bb2d1;">
+                  Or paste this link in your browser:
+                </p>
+                <p style="margin:0;font-family:Open Sans,Arial,sans-serif;font-size:11px;line-height:1.45;word-break:break-all;color:#f5d676;">
+                  {{ .ConfirmationURL }}
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 24px 22px;border-top:1px solid #113a72;">
+                <p style="margin:0;font-family:Open Sans,Arial,sans-serif;font-size:11px;line-height:1.45;color:#9bb2d1;">
+                  If you didn’t create an ECOS account, you can ignore this email.
+                </p>
+                <p style="margin:10px 0 0;font-family:'Encode Sans Expanded',Arial,sans-serif;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:#6b7f99;">
+                  Epoxy Twins · Dynasty Epoxy · FGP Midwest
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

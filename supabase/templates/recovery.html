@@ -1,0 +1,60 @@
+<!--
+  ECOS — Reset password email
+  Paste into Supabase Dashboard → Authentication → Email Templates → Reset password
+  Subject: Reset your ECOS password
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reset your ECOS password</title>
+  </head>
+  <body style="margin:0;padding:0;background:#000000;font-family:Montserrat,Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#000000;padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background:#0a1830;border:1px solid #113a72;border-radius:12px;overflow:hidden;">
+            <tr>
+              <td style="background:linear-gradient(180deg,#113a72 0%,#0a1830 100%);padding:22px 24px;border-bottom:3px solid #e33433;">
+                <img src="{{ .SiteURL }}/favicon.svg" width="44" height="44" alt="Epoxy Twins" style="display:block;border-radius:8px;margin-bottom:12px;" />
+                <div style="font-family:Montserrat,Arial,sans-serif;font-weight:900;font-size:22px;color:#ffffff;line-height:1.2;">
+                  Reset your password
+                </div>
+                <div style="font-family:Open Sans,Arial,sans-serif;font-size:13px;color:#d2def1;margin-top:6px;">
+                  ECOS · Epoxy Contractor Operating System
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px;">
+                <p style="margin:0 0 14px;font-family:Open Sans,Arial,sans-serif;font-size:14px;line-height:1.55;color:#d2def1;">
+                  We received a request to reset the password for this ECOS account. Click below to choose a new password.
+                </p>
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:18px 0;">
+                  <tr>
+                    <td style="border-radius:6px;background:#e33433;">
+                      <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:12px 22px;font-family:Montserrat,Arial,sans-serif;font-weight:900;font-size:13px;letter-spacing:0.06em;color:#ffffff;text-decoration:none;">
+                        RESET PASSWORD
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0;font-family:Open Sans,Arial,sans-serif;font-size:12px;line-height:1.5;color:#9bb2d1;">
+                  If you didn’t ask for a reset, you can ignore this email — your password stays the same.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 24px 22px;border-top:1px solid #113a72;">
+                <p style="margin:0;font-family:'Encode Sans Expanded',Arial,sans-serif;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:#6b7f99;">
+                  Epoxy Twins · Dynasty Epoxy · FGP Midwest
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

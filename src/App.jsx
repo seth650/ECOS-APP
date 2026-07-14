@@ -3273,54 +3273,94 @@ export default function App() {
                 </div>
 
                 <div style={S.sectionHead}>Other Available {answers.location === "interior" ? "Indoor" : "Outdoor"} Systems</div>
-                <div style={S.card}>
-                  {otherLocationSystems.map((key) => {
-                    const isReleaseSystem = ACTIVE_RELEASE_SYSTEMS.has(key);
-                    const isLocked = !isReleaseSystem || (isFreePlan && !FREE_UNLOCKED_SYSTEMS.has(key));
-                    const benchmarkPerSqFt = getSystemMaterialBenchmarkPerSqFt(
-                      key,
-                      contractorPricingTierKey,
-                      answers,
-                      speed
-                    );
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => {
-                          if (isLocked) {
-                            goToPlans("questions");
-                            return;
-                          }
-                          setManualSystemKey(key);
-                        }}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          border: `1px solid ${manualSystemKey === key ? CATEGORY_THEME[getSystemCategory(key)].accent : "#113a72"}`,
-                          borderLeft: `6px solid ${CATEGORY_THEME[getSystemCategory(key)].accent}`,
-                          background: CATEGORY_THEME[getSystemCategory(key)].tint,
-                          borderRadius: 8,
-                          padding: "10px 10px",
-                          marginBottom: 8,
-                          cursor: isLocked ? "not-allowed" : "pointer",
-                          opacity: isLocked ? 0.5 : 1,
-                        }}
-                      >
-                        <div style={{ fontSize: 12, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 3 }}>
-                          {SYSTEMS[key].code} - {SYSTEMS[key].label}
-                        </div>
-                        {isReleaseSystem && benchmarkPerSqFt !== null && (
-                          <div style={{ fontSize: 10, color: "#eab308", marginBottom: 2 }}>
-                            Avg materials @ {SYSTEM_BENCHMARK_SQFT} ft²: ${benchmarkPerSqFt.toFixed(2)}/ft²
+                {otherLocationSystems.length > 0 && (
+                  <div style={S.card}>
+                    {otherLocationSystems.map((key) => {
+                      const isReleaseSystem = ACTIVE_RELEASE_SYSTEMS.has(key);
+                      const isLocked = !isReleaseSystem || (isFreePlan && !FREE_UNLOCKED_SYSTEMS.has(key));
+                      const benchmarkPerSqFt = getSystemMaterialBenchmarkPerSqFt(
+                        key,
+                        contractorPricingTierKey,
+                        answers,
+                        speed
+                      );
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => {
+                            if (isLocked) {
+                              goToPlans("questions");
+                              return;
+                            }
+                            setManualSystemKey(key);
+                          }}
+                          style={{
+                            width: "100%",
+                            textAlign: "left",
+                            border: `1px solid ${manualSystemKey === key ? CATEGORY_THEME[getSystemCategory(key)].accent : "#113a72"}`,
+                            borderLeft: `6px solid ${CATEGORY_THEME[getSystemCategory(key)].accent}`,
+                            background: CATEGORY_THEME[getSystemCategory(key)].tint,
+                            borderRadius: 8,
+                            padding: "10px 10px",
+                            marginBottom: 8,
+                            cursor: isLocked ? "not-allowed" : "pointer",
+                            opacity: isLocked ? 0.5 : 1,
+                          }}
+                        >
+                          <div style={{ fontSize: 12, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 3 }}>
+                            {SYSTEMS[key].code} - {SYSTEMS[key].label}
                           </div>
-                        )}
-                        <div style={{ fontSize: 10, color: isLocked ? "#f5d676" : "#d2def1" }}>
-                          {isLocked ? "🔒 Unlock Tier 1" : "Tap to use this system instead"}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                          {isReleaseSystem && benchmarkPerSqFt !== null && (
+                            <div style={{ fontSize: 10, color: "#eab308", marginBottom: 2 }}>
+                              Avg materials @ {SYSTEM_BENCHMARK_SQFT} ft²: ${benchmarkPerSqFt.toFixed(2)}/ft²
+                            </div>
+                          )}
+                          <div style={{ fontSize: 10, color: isLocked ? "#f5d676" : "#d2def1" }}>
+                            {isLocked ? "🔒 Unlock Tier 1" : "Tap to use this system instead"}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {(() => {
+                  const isTier2 = membershipTier === "tier2";
+                  const isTier1 = membershipTier === "tier1";
+                  const canUpgrade = membershipTier === "free";
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (canUpgrade) goToPlans("questions");
+                      }}
+                      disabled={isTier1 || isTier2}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        marginTop: otherLocationSystems.length > 0 ? 8 : 0,
+                        border: "1px solid #4b5563",
+                        borderLeft: "6px solid #6b7280",
+                        background: "rgba(55, 65, 81, 0.35)",
+                        borderRadius: 8,
+                        padding: "12px 12px",
+                        cursor: canUpgrade ? "pointer" : "not-allowed",
+                        opacity: isTier1 ? 0.45 : isTier2 ? 0.75 : 0.9,
+                        filter: isTier1 ? "grayscale(0.35)" : "none",
+                      }}
+                    >
+                      <div style={{ fontSize: 12, color: isTier1 ? "#9ca3af" : "#d1d5db", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, lineHeight: 1.4 }}>
+                        Don't like our systems? Build your own in Tier 2 — Upgrade to unlock custom system builder
+                      </div>
+                      <div style={{ fontSize: 10, color: canUpgrade ? "#f5d676" : "#9ca3af", marginTop: 4 }}>
+                        {isTier2
+                          ? "Tier 2 custom system builder — coming soon"
+                          : isTier1
+                            ? "🔒 Locked on Tier 1 — upgrade to Tier 2 to unlock"
+                            : "Tap to view Tier 2 upgrade options →"}
+                      </div>
+                    </button>
+                  );
+                })()}
               </>
             )}
 
