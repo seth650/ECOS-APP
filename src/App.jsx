@@ -586,7 +586,7 @@ function buildFgOrderEmailBody({
       : null,
     "",
     "--- PO notes for Gary (internal) ---",
-    "Square: enter consolidated line items at MSRP, then apply a single discount to the invoice total equal to TOTAL DISCOUNT above.",
+    "Square: enter consolidated line items at MSRP, then apply a single discount to the invoice total equal to TOTAL DISCOUNT above if entering invoice using Desktop. If using cart checkout with barcodes, adjust price to buying tier Price. Each JOB section above is for pull / staging; CONSOLIDATED is what to invoice for anything more than 1 job.",
     "",
     "Sent automatically from ECOS (epoxyquoting.com).",
   ]
