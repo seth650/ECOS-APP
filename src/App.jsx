@@ -2857,18 +2857,38 @@ export default function App() {
                 </div>
                 <div>
                   <div style={{ fontSize: 10, color: "#d2def1", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 5, fontFamily: "'Encode Sans Expanded', sans-serif" }}>Square Footage</div>
-                  <input
-                    style={S.input}
-                    value={sqFt}
-                    onClick={() => {
-                      setCalcValue(sqFt);
-                      setCalcUnit("sqft");
-                      setShowAreaCalc(true);
-                    }}
-                    placeholder="Tap to enter area"
-                    readOnly
-                  />
-                  <div style={{ marginTop: 6, fontSize: 10, color: "#9bb2d1" }}>Mobile calculator supports sq/ft, m2 (ms2), and yd2.</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      style={{ ...S.input, flex: 1 }}
+                      type="text"
+                      inputMode="decimal"
+                      enterKeyHint="done"
+                      autoComplete="off"
+                      value={sqFt}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^\d.]/g, "");
+                        const parts = raw.split(".");
+                        const cleaned = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join("")}` : raw;
+                        setSqFt(cleaned);
+                      }}
+                      placeholder="e.g. 800"
+                    />
+                    <button
+                      type="button"
+                      style={S.btnSm}
+                      title="Area calculator (sq/ft, m², yd²)"
+                      onClick={() => {
+                        setCalcValue(sqFt);
+                        setCalcUnit("sqft");
+                        setShowAreaCalc(true);
+                      }}
+                    >
+                      Calc
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 10, color: "#9bb2d1" }}>
+                    Type square feet directly, or tap Calc for m² / yd² conversion.
+                  </div>
                 </div>
               </div>
             </div>
