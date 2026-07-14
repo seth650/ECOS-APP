@@ -1088,6 +1088,7 @@ export default function App() {
   const [authNotice, setAuthNotice] = useState("");
   const [orderSubmitMessage, setOrderSubmitMessage] = useState("");
   const [stripeBanner, setStripeBanner] = useState("");
+  const [checkoutOverlay, setCheckoutOverlay] = useState(null); // null | { status: "loading"|"error", message?: string }
   const [savedOrders, setSavedOrders] = useState([]);
   const [currentPlan, setCurrentPlan] = useState("Free");
   const [poCountThisYear, setPoCountThisYear] = useState(0);
@@ -1120,8 +1121,13 @@ export default function App() {
   const prevSystemFamilyRef = useRef(null);
 
   function goToPlans(fromPhase) {
-    setPlansReturnPhase(fromPhase);
+    setPlansReturnPhase(fromPhase || phase || "questions");
     setPhase("plans");
+  }
+
+  function goToJobCalculator() {
+    setHeaderMenuOpen(false);
+    setPhase("questions");
   }
 
   function plansBackLabel() {
@@ -1132,8 +1138,12 @@ export default function App() {
         return "← Back to thank you";
       case "account":
         return "← Back to account";
+      case "orders":
+        return "← Back to My Orders";
+      case "questions":
+        return "← Back to job calculator";
       default:
-        return "← Back to app";
+        return "← Back to job calculator";
     }
   }
 
@@ -1410,6 +1420,10 @@ export default function App() {
       return;
     }
     const base = getApiBase();
+    setCheckoutOverlay({
+      status: "loading",
+      message: "Opening secure Stripe checkout for ECOS Tier 1 — The Calculator…",
+    });
     try {
       const res = await fetch(`${base}/api/create-checkout-session`, {
         method: "POST",
@@ -1424,7 +1438,10 @@ export default function App() {
       if (!data.url) throw new Error("No checkout URL returned.");
       window.location.assign(data.url);
     } catch (e) {
-      window.alert(e?.message || "Could not start checkout. Is the API deployed (Vercel) and env vars set?");
+      setCheckoutOverlay({
+        status: "error",
+        message: e?.message || "Could not start checkout. Is the API deployed (Vercel) and env vars set?",
+      });
     }
   }
 
@@ -2549,6 +2566,44 @@ export default function App() {
           {settingsToast}
         </div>
       )}
+
+      {checkoutOverlay && (
+        <div style={{ ...S.modalOverlay, zIndex: 10001, background: "rgba(0,0,0,0.88)" }}>
+          <div
+            style={{
+              ...S.modalCard,
+              maxWidth: 420,
+              border: "1px solid #e33433",
+              background: "linear-gradient(180deg, #0a1830 0%, #000000 100%)",
+            }}
+          >
+            <div style={{ fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9bb2d1", fontFamily: "'Encode Sans Expanded', sans-serif", marginBottom: 8 }}>
+              Epoxy Twins · ECOS
+            </div>
+            <div style={{ fontSize: 18, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
+              Tier 1 — The Calculator
+            </div>
+            <div style={{ fontSize: 12, color: "#d2def1", lineHeight: 1.5, marginBottom: 14, fontFamily: "'Open Sans', sans-serif" }}>
+              {checkoutOverlay.message || "Preparing secure checkout…"}
+            </div>
+            {checkoutOverlay.status === "loading" ? (
+              <div style={{ ...S.btn, width: "100%", marginTop: 0, opacity: 0.85, cursor: "wait", textAlign: "center" }}>
+                Redirecting to Stripe…
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ color: "#fca5a5", fontSize: 11, marginBottom: 4 }}>{checkoutOverlay.message}</div>
+                <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={() => startTier1Checkout()}>
+                  Try again
+                </button>
+                <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setCheckoutOverlay(null)}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div style={S.header}>
         <button
@@ -2618,6 +2673,26 @@ export default function App() {
                     style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
                     onClick={() => {
                       setHeaderMenuOpen(false);
+                      goToJobCalculator();
+                    }}
+                  >
+                    Job Calculator
+                  </button>
+                  <button
+                    type="button"
+                    style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
+                    onClick={() => {
+                      setHeaderMenuOpen(false);
+                      goToPlans(phase);
+                    }}
+                  >
+                    Plans
+                  </button>
+                  <button
+                    type="button"
+                    style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
+                    onClick={() => {
+                      setHeaderMenuOpen(false);
                       setPhase("account");
                     }}
                   >
@@ -2646,6 +2721,46 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {session?.user && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 6,
+            padding: "8px 14px 0",
+            justifyContent: "flex-end",
+          }}
+        >
+          {[
+            { label: "Calculator", active: phase === "questions" || phase === "results", onClick: goToJobCalculator },
+            { label: "Plans", active: phase === "plans", onClick: () => goToPlans(phase) },
+            { label: "Orders", active: phase === "orders", onClick: () => setPhase("orders") },
+            { label: "Account", active: phase === "account" || phase === "userdb", onClick: () => setPhase("account") },
+          ].map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={item.onClick}
+              style={{
+                background: item.active ? "#113a72" : "transparent",
+                border: `1px solid ${item.active ? "#e33433" : "#113a72"}`,
+                color: item.active ? "#ffffff" : "#9bb2d1",
+                borderRadius: 4,
+                fontSize: 9,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                padding: "4px 8px",
+                cursor: "pointer",
+                fontFamily: "'Encode Sans Expanded', sans-serif",
+                fontWeight: 700,
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div style={S.body}>
         {stripeBanner && (
@@ -4208,11 +4323,22 @@ export default function App() {
 
         {currentUser && phase === "orders" && (
           <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 4, marginTop: 8 }}>
+              <button type="button" style={S.btnSm} onClick={goToJobCalculator}>
+                ← Job Calculator
+              </button>
+              <button type="button" style={S.btnSm} onClick={() => goToPlans("orders")}>
+                Plans
+              </button>
+              <button type="button" style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }} onClick={goNewJobQuote}>
+                NEW JOB QUOTE
+              </button>
+            </div>
             <div style={S.sectionHead}>My Orders</div>
             {membershipTier === "free" ? (
               <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.08)" }}>
                 <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
-                  Upgrade to Tier 1 to unlock Unlimited PO submission, more order history, and Job Card printing.
+                  Upgrade to Tier 1 to unlock Unlimited PO submission, order history, and Job Card printing.
                 </div>
                 <div style={{ filter: "blur(3px)", opacity: 0.7, pointerEvents: "none" }}>
                   {(poHistory.slice(0, 3).length ? poHistory.slice(0, 3) : [{ id: "locked1" }, { id: "locked2" }]).map((o, idx) => (
@@ -4285,17 +4411,29 @@ export default function App() {
                 </div>
               </>
             )}
-            <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={goNewJobQuote}>
-              NEW JOB QUOTE
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
+              <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={goToJobCalculator}>
+                ← Back to Job Calculator
+              </button>
+              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={goNewJobQuote}>
+                NEW JOB QUOTE
+              </button>
+            </div>
           </>
         )}
 
         {currentUser && phase === "plans" && (
           <>
-            <div style={{ marginBottom: 12 }}>
-              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setPhase(plansReturnPhase)}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+              <button
+                type="button"
+                style={{ ...S.btnSm, width: "100%" }}
+                onClick={() => setPhase(plansReturnPhase === "plans" ? "questions" : plansReturnPhase || "questions")}
+              >
                 {plansBackLabel()}
+              </button>
+              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={goToJobCalculator}>
+                ← Job Calculator
               </button>
             </div>
             <div style={S.sectionHeadGold}>Choose Your Membership</div>

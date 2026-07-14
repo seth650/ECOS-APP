@@ -44,16 +44,27 @@ export default async function handler(req, res) {
     const successUrl = `${siteUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${siteUrl}/?checkout=cancelled`;
 
+    // Align hosted Checkout copy/feel with ECOS calculator branding (navy/red).
+    // Logo + primary color should also be set in Stripe Dashboard → Branding
+    // (primary #e33433, background #000000 / accent #113a72).
     const sessionParams = {
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: { supabase_user_id: user.id },
+      metadata: { supabase_user_id: user.id, product: "ecos_tier1" },
       client_reference_id: user.id,
       allow_promotion_codes: true,
+      billing_address_collection: "auto",
+      locale: "en",
+      custom_text: {
+        submit: {
+          message:
+            "ECOS Tier 1 — The Calculator unlocks all 9 ET flooring systems, unlimited FGP POs, order history, and Job Card printing.",
+        },
+      },
       subscription_data: {
-        metadata: { supabase_user_id: user.id },
+        metadata: { supabase_user_id: user.id, product: "ecos_tier1" },
       },
     };
     if (profile?.stripe_customer_id) {
@@ -62,7 +73,18 @@ export default async function handler(req, res) {
       sessionParams.customer_email = user.email;
     }
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    let session;
+    try {
+      session = await stripe.checkout.sessions.create(sessionParams);
+    } catch (stripeErr) {
+      // Older Stripe API versions may reject custom_text — retry without it.
+      if (sessionParams.custom_text) {
+        delete sessionParams.custom_text;
+        session = await stripe.checkout.sessions.create(sessionParams);
+      } else {
+        throw stripeErr;
+      }
+    }
     if (!session.url) {
       return res.status(500).json({ error: "Stripe did not return a checkout URL." });
     }
