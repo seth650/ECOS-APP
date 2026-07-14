@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { getApiBase } from "./stripeClient.js";
 import {
@@ -27,6 +27,8 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
   const [lines, setLines] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  /** Sync lock — React state alone cannot stop double-clicks before re-render. */
+  const submitLockRef = useRef(false);
 
   const category = MATERIAL_CATEGORIES.find((c) => c.id === categoryId);
   const products = useMemo(() => listCatalogProducts(categoryId), [categoryId]);
@@ -73,12 +75,17 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
     setLines((prev) => prev.filter((l) => l.id !== id));
   }
 
-  /** Submit handler (no separate handleSubmit — wired via button onClick). */
+  /**
+   * Submit goes ONLY through /api/send-po-email.
+   * The API inserts with the service role (bypasses RLS), then emails Gary.
+   * Client never inserts directly — that was the failed-insert + still-email failure mode.
+   */
   async function submitOrder() {
     console.log("[material-order] submitOrder START", {
       linesCount: lines.length,
       userId: session?.user?.id,
       submitting,
+      locked: submitLockRef.current,
       tierKey,
     });
     if (lines.length === 0) {
@@ -89,67 +96,88 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       setMessage("Session expired — log out and log back in, then try again.");
       return;
     }
-    if (submitting) return;
+    if (submitLockRef.current || submitting) {
+      console.log("[material-order] submit blocked (already in flight)");
+      return;
+    }
+    submitLockRef.current = true;
     setSubmitting(true);
     setMessage("Submitting material order…");
+
     const items = lines.map(({ id: _id, ...rest }) => rest);
-    const record = {
-      user_id: session.user.id,
+    const requestId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `mo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const orderPayload = {
       items,
       total_msrp: totals.totalMsrp,
       total_discount: totals.totalDiscount,
       total_price: totals.totalPrice,
       pricing_tier_key: tierKey,
       status: "submitted",
-      created_at: new Date().toISOString(),
     };
+
     try {
-      // Client insert only — send-po-email does NOT write to Supabase (orders vs material_orders).
-      console.log("[material-order] BEFORE Supabase insert", { table: "material_orders", record });
-      const { data: inserted, error } = await supabase.from("material_orders").insert(record).select("*").single();
-      console.log("[material-order] INSERT RESPONSE", { data: inserted, error });
-      if (error) {
-        console.error("[material-order] Supabase insert failed", error);
-        const detail = [error.message, error.details, error.hint].filter(Boolean).join(" — ");
-        throw new Error(detail || "Could not save to material_orders.");
-      }
-      if (!inserted?.id) {
-        console.error("[material-order] insert returned no row", { record });
-        throw new Error(
-          "No row returned after insert. Run supabase/material_orders.sql in Supabase and confirm RLS insert/select policies."
-        );
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Session expired — log out and log back in, then try again.");
       }
 
       const apiBase = getApiBase();
       const emailUrl = `${apiBase}/api/send-po-email`;
-      console.log("[material-order] BEFORE email API call", { emailUrl, orderId: inserted.id });
+      console.log("[material-order] BEFORE API submit (server inserts + emails)", {
+        emailUrl,
+        requestId,
+        itemCount: items.length,
+      });
+
       const emailRes = await fetch(emailUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
-          order: inserted,
+          requestId,
+          order: orderPayload,
           profile: userProfile,
           tierLabel,
         }),
       });
       const emailBody = await emailRes.json().catch(() => ({}));
-      console.log("[material-order] EMAIL RESPONSE", {
+      console.log("[material-order] API RESPONSE", {
         status: emailRes.status,
         ok: emailRes.ok,
         body: emailBody,
       });
+
       if (!emailRes.ok) {
-        throw new Error(emailBody?.error || "Order saved but email to FGP failed.");
+        throw new Error(emailBody?.error || "Could not submit material order.");
+      }
+
+      const saved = emailBody?.order;
+      if (!saved?.id) {
+        throw new Error("Server did not return a saved material_orders row.");
       }
 
       setLines([]);
-      setMessage("Material order submitted. Gary has been emailed a copy.");
-      onOrderSaved?.(inserted);
+      if (emailBody.duplicate) {
+        setMessage("Material order already submitted (duplicate click blocked).");
+      } else if (emailBody.emailed === false) {
+        setMessage("Material order saved, but email to Gary may not have sent. Check with FGP.");
+      } else {
+        setMessage("Material order submitted. Gary has been emailed a copy.");
+      }
+      onOrderSaved?.(saved);
     } catch (e) {
       console.error("[material-order] submitOrder FAILED", e);
       setMessage(e?.message || "Could not submit material order.");
     } finally {
       setSubmitting(false);
+      submitLockRef.current = false;
     }
   }
 
