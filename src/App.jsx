@@ -8,6 +8,7 @@ import {
   resolveLayerProductKey,
 } from "./products.js";
 import MaterialOrderForm from "./MaterialOrderForm.jsx";
+import { openJobCardPrint } from "./jobCardPrint.js";
 
 const HEADER_LOGO_URL = "/favicon.svg";
 /** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
@@ -2519,61 +2520,46 @@ export default function App() {
     setIsEditingProfile(false);
   }
 
+  /** Tier 1+ Job Card: checklist, landscape, 2 cards/page (kit sizes from quote / PRODUCTS). */
   function printJobCard(orderRecord) {
-    const win = window.open("", "_blank", "width=980,height=720");
-    if (!win) return;
-    const jobs = Array.isArray(orderRecord.jobs) && orderRecord.jobs.length ? orderRecord.jobs : [{
-      jobNamePo: orderRecord.job_name || orderRecord.jobNamePo,
-      systemCode: orderRecord.system_code || orderRecord.systemCode,
-      sqFt: orderRecord.sq_footage || orderRecord.sqFt,
-      orderLines: orderRecord.order_lines || [],
-    }];
-    const pageHtml = [];
-    for (let i = 0; i < jobs.length; i += 2) {
-      const slice = jobs
-        .slice(i, i + 2)
-        .map((job) => {
-          const lines = (job.orderLines || orderRecord.order_lines || [])
-            .map((l) => `<li>${l.product} — ${l.qty}×${l.kitSize} <span class="muted">(${l.totalNeeded})</span></li>`)
-            .join("");
-          return `
-          <div class="card">
-            <h2>${job.jobNamePo || orderRecord.jobNamePo || "Job Card"}</h2>
-            <p><strong>Date:</strong> ${new Date(orderRecord.created_at || orderRecord.submittedAt || Date.now()).toLocaleDateString()}
-               · <strong>System:</strong> ${job.systemCode || orderRecord.systemCode || "—"}
-               · <strong>Sq Ft:</strong> ${Number(job.sqFt || orderRecord.sqFt || 0).toLocaleString()}</p>
-            <ul>${lines || "<li>No line items captured.</li>"}</ul>
-          </div>`;
-        })
-        .join("");
-      pageHtml.push(`<div class="page"><div class="grid">${slice}</div></div>`);
+    if (membershipTier === "free") {
+      const upgrade = window.confirm("Job Card printing is a Tier 1 feature. View plans?");
+      if (upgrade) setPhase("plans");
+      return;
     }
-    win.document.write(`
-      <html>
-        <head>
-          <title>Job Card</title>
-          <style>
-            @page { size: letter; margin: 0.4in; }
-            * { box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; margin: 0; color: #111; }
-            .page { page-break-after: always; }
-            .page:last-child { page-break-after: auto; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-height: 9.5in; align-content: stretch; }
-            .card { border: 1px solid #222; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-            .grid .card:only-child { grid-column: 1 / -1; max-width: 50%; }
-            h2 { margin: 0 0 4px; font-size: 14px; line-height: 1.2; }
-            p { margin: 0 0 4px; font-size: 10px; line-height: 1.3; }
-            ul { margin: 0; padding-left: 16px; font-size: 10px; line-height: 1.25; flex: 1; overflow: hidden; }
-            .muted { color: #555; }
-          </style>
-        </head>
-        <body>
-          ${pageHtml.join("")}
-          <script>window.print();</script>
-        </body>
-      </html>
-    `);
-    win.document.close();
+    const company =
+      userProfile?.company_name ||
+      [userProfile?.first_name, userProfile?.last_name].filter(Boolean).join(" ") ||
+      "";
+    openJobCardPrint({
+      ...orderRecord,
+      company_name: orderRecord.company_name || company,
+      first_name: orderRecord.first_name || userProfile?.first_name,
+      last_name: orderRecord.last_name || userProfile?.last_name,
+      customer_name: orderRecord.customer_name || company || undefined,
+      submittedAt: orderRecord.submittedAt || orderRecord.created_at || new Date().toISOString(),
+    });
+  }
+
+  /** Print Job Card from the live results quote (before or after submit). */
+  function printJobCardFromQuote() {
+    if (!results || !recommendedSystem || !combinedTotals) return;
+    const jobs = [...orderJobs, currentJobSnapshot].filter(Boolean).map((j) => ({
+      jobNamePo: j.jobNamePo || contractorName || "Untitled Job / PO",
+      address: j.address || jobName || "—",
+      systemCode: j.systemCode || recommendedSystem.code,
+      sqFt: j.sf,
+      orderLines: j.orderLines || [],
+    }));
+    printJobCard({
+      job_name: jobs.map((j) => j.jobNamePo).join(" + ") || "Untitled Job / PO",
+      address: jobs.map((j) => j.address).filter(Boolean).join(" | ") || "—",
+      system_code: recommendedSystem.code,
+      sq_footage: combinedTotals.totalSqFt,
+      order_lines: combinedOrderLines || results.orderLines || [],
+      jobs,
+      created_at: new Date().toISOString(),
+    });
   }
 
   /** Condensed one-page Print/Save PO for the results screen (fits letter). */
@@ -3797,6 +3783,15 @@ export default function App() {
               <button type="button" style={{ ...S.btn, background: activeTheme.accent, marginTop: 0 }} onClick={printConsolidatedPo}>
                 Print / Save PO
               </button>
+              {membershipTier === "free" ? (
+                <button type="button" style={{ ...S.hookDisabled, width: "100%" }} disabled>
+                  Print Job Card (Upgrade to Tier 1, The Calculator)
+                </button>
+              ) : (
+                <button type="button" style={{ ...S.btnSm, width: "100%", borderColor: "#9bb2d1" }} onClick={printJobCardFromQuote}>
+                  Print Job Card
+                </button>
+              )}
               {/*
                 ROADMAP — Tier 2 "The Estimator": CFO-backed profit tool. Inputs: material line list + tier $ from this
                 screen (results.orderLines, combinedOrderLines, requiredMaterialTierTotal / costPer ft²), sell price &
@@ -3844,13 +3839,33 @@ export default function App() {
               <button type="button" style={{ ...S.btn, background: "#e33433", marginTop: 0 }} onClick={reset}>
                 Start a New Order
               </button>
-              <button
-                type="button"
-                style={S.hookDisabled}
-                disabled
-              >
-                Print Job Card (Upgrade to Tier 1, The Calculator)
-              </button>
+              {membershipTier === "free" ? (
+                <button
+                  type="button"
+                  style={S.hookDisabled}
+                  disabled
+                >
+                  Print Job Card (Upgrade to Tier 1, The Calculator)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  style={{ ...S.btnSm, width: "100%", borderColor: "#9bb2d1" }}
+                  onClick={() =>
+                    printJobCard({
+                      ...submittedDraft,
+                      job_name: submittedDraft.jobNamePo,
+                      system_code: submittedDraft.systemCode,
+                      sq_footage: submittedDraft.sqFt,
+                      order_lines: submittedDraft.combinedOrderLines || [],
+                      jobs: submittedDraft.jobs || [],
+                      created_at: new Date().toISOString(),
+                    })
+                  }
+                >
+                  Print Job Card
+                </button>
+              )}
               <button
                 type="button"
                 style={S.hookDisabled}
