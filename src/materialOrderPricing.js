@@ -12,25 +12,29 @@ const CONTRACTOR_RANK = { msrp: 0, small: 1, tier2: 2, preferred: 3 };
 
 /**
  * Material-order pricing tier from profile.
- * Tier 1 membership → Small Buyer; Tier 2 + contractor_tier / assigned FGP tier for 10% / 15%.
+ * Tier 1 membership → Small Buyer (5%); Tier 2 → 10%/15%; Testing Mode FGP unlock honors assigned buying tier.
  */
 export function getMaterialOrderPricingTierKey(profile = {}) {
-  const mem = profile.membership_tier || "free";
-  const contractorTier = profile.contractor_tier || profile.assignedPricingTierKey || "msrp";
+  const mem = String(profile.membership_tier || "free").toLowerCase();
+  const assignedRaw = profile.contractor_tier || profile.assignedPricingTierKey || "msrp";
+  const assigned = MATERIAL_PRICING_TIERS[assignedRaw] ? assignedRaw : "msrp";
+  const fgpUnlocked = !!(profile.isFgpCustomer && profile.contractorPricingApplicationReceived);
 
   if (mem === "tier2") {
-    return contractorTier === "preferred" ? "preferred" : "tier2";
+    if (assigned === "preferred") return "preferred";
+    if (assigned === "small") return "small";
+    return "tier2";
   }
   if (mem === "tier1") {
-    const assigned = profile.assignedPricingTierKey || "msrp";
-    const fgpActive =
-      profile.isFgpCustomer &&
-      profile.contractorPricingApplicationReceived &&
-      CONTRACTOR_RANK[assigned] > CONTRACTOR_RANK.small;
-    if (fgpActive && (assigned === "tier2" || assigned === "preferred")) {
-      return assigned;
+    if (fgpUnlocked && (assigned === "tier2" || assigned === "preferred" || assigned === "small")) {
+      return assigned === "msrp" ? "small" : assigned;
     }
+    // Tier 1 always gets Small Buyer material discounts (5% off main products).
     return "small";
+  }
+  // Free + Testing Mode FGP unlock: apply assigned buying tier so quotes match admin testing.
+  if (fgpUnlocked && CONTRACTOR_RANK[assigned] > CONTRACTOR_RANK.msrp) {
+    return assigned;
   }
   return "msrp";
 }

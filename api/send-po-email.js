@@ -1,11 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "./_lib/supabaseAdmin.js";
-import {
-  buildMaterialLine,
-  getMaterialOrderPricingTierKey,
-  getMaterialOrderTierLabel,
-  summarizeMaterialLines,
-} from "../src/materialOrderPricing.js";
+import { PRODUCTS } from "../src/products.js";
+import { isAncillaryCategory } from "../src/materialOrderCatalog.js";
+import { getMaterialOrderPricingTierKey, MATERIAL_PRICING_TIERS } from "../src/materialOrderPricing.js";
 
 const GARY_EMAIL = "gary@dynastyepoxy.com";
 
@@ -17,31 +14,135 @@ const EMAIL_TIER_TAG = {
   msrp: "MSRP",
 };
 
+const TIER_RANK = { msrp: 0, small: 1, tier2: 2, preferred: 3 };
+
+const DISCOUNT_PCT = {
+  small: 5,
+  tier2: 10,
+  preferred: 15,
+  msrp: 0,
+};
+
 function usd(n) {
   return `$${Number(n || 0).toFixed(2)}`;
 }
 
+/** Normalize any tier-ish string to a catalog key. */
+function normalizeTierKey(raw) {
+  if (raw == null || raw === "") return null;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "small" || s.includes("small buyer") || s === "tier1" || s === "tier 1") return "small";
+  if (s === "preferred" || s.includes("preferred")) return "preferred";
+  if (s === "tier2" || s === "tier 2" || s.includes("contractor")) return "tier2";
+  if (s === "msrp" || s.includes("msrp")) return "msrp";
+  if (MATERIAL_PRICING_TIERS[s]) return s;
+  return null;
+}
+
 /**
- * Recalculate every line from the catalog + authentic profile tier.
- * Client-sent unit/line prices are ignored so Gary always sees server truth.
+ * Resolve buying tier for material PO pricing.
+ * Prefer explicit order/client tier over a weaker DB-derived tier so Testing Mode discounts stick.
+ */
+function resolveMaterialTierKey(profile, orderPricingTierKey) {
+  const fromProfile = normalizeTierKey(getMaterialOrderPricingTierKey(profile)) || "msrp";
+  const fromOrder = normalizeTierKey(orderPricingTierKey);
+  const assigned = normalizeTierKey(profile?.contractor_tier || profile?.assignedPricingTierKey);
+  const fgpUnlocked = !!(profile?.isFgpCustomer && profile?.contractorPricingApplicationReceived);
+
+  const candidates = [fromProfile];
+  if (fromOrder) candidates.push(fromOrder);
+  // Testing Mode / FGP: honor assigned buying tier when unlocked.
+  if (fgpUnlocked && assigned && assigned !== "msrp") candidates.push(assigned);
+  // Tier 1 membership always at least Small Buyer for materials.
+  const mem = String(profile?.membership_tier || "").toLowerCase();
+  if (mem === "tier1" || mem === "tier 1") candidates.push("small");
+
+  let best = "msrp";
+  for (const key of candidates) {
+    if ((TIER_RANK[key] || 0) > (TIER_RANK[best] || 0)) best = key;
+  }
+  // Prefer exact assigned/order when equal rank intent is small vs msrp already handled
+  if (best === "msrp" && (fromOrder === "small" || assigned === "small" || fromProfile === "small")) {
+    best = "small";
+  }
+  return best;
+}
+
+function tierDisplayLabel(tierKey) {
+  const pct = DISCOUNT_PCT[tierKey] ?? 0;
+  if (tierKey === "small") return `Small Buyer (${pct}% off MSRP)`;
+  if (tierKey === "tier2") return `Tier 2 / Contractor (${pct}% off MSRP)`;
+  if (tierKey === "preferred") return `Preferred Partner (${pct}% off MSRP)`;
+  return "MSRP (0% off)";
+}
+
+/**
+ * Tier-discounted unit price for a kit.
+ * Main products: Small 5% / Tier2 10% / Preferred 15%.
+ * Ancillaries: Preferred 5%, else MSRP.
+ */
+function discountedUnitPrice(productKey, kitIndex, categoryId, tierKey) {
+  const product = PRODUCTS[productKey];
+  const kit = product?.kits?.[kitIndex] || product?.kits?.[0];
+  const msrp = Number(kit?.msrp || 0);
+
+  // Prefer explicit kit tier table when present (e.g. HyperPrime / EZ Top).
+  if (kit?.tierPrices && typeof kit.tierPrices[tierKey] === "number") {
+    return { msrp, unitPrice: +Number(kit.tierPrices[tierKey]).toFixed(2), kit, product };
+  }
+
+  const tier = MATERIAL_PRICING_TIERS[tierKey] || MATERIAL_PRICING_TIERS.msrp;
+  const ancillary = isAncillaryCategory(categoryId);
+  const mult = ancillary ? tier.ancillaryMult : tier.mainMult;
+  const unitPrice = +(msrp * mult).toFixed(2);
+  return { msrp, unitPrice, kit, product, mult, ancillary };
+}
+
+/**
+ * Recalculate every line — never trust client unitPrice / lineTotal.
  */
 function recalculateOrderLines(rawItems, tierKey) {
   return (Array.isArray(rawItems) ? rawItems : [])
     .map((raw) => {
       if (!raw?.productKey) return null;
-      return buildMaterialLine({
+      const kitIndex = Number(raw.kitIndex || 0);
+      const categoryId = raw.categoryId || "";
+      const qty = Math.max(1, Math.floor(Number(raw.qty) || 1));
+      const { msrp, unitPrice, kit, product } = discountedUnitPrice(
+        raw.productKey,
+        kitIndex,
+        categoryId,
+        tierKey
+      );
+      const lineMsrp = +(msrp * qty).toFixed(2);
+      const lineTotal = +(unitPrice * qty).toFixed(2);
+      const savings = +(lineMsrp - lineTotal).toFixed(2);
+      return {
         productKey: raw.productKey,
-        kitIndex: Number(raw.kitIndex || 0),
-        categoryId: raw.categoryId || "",
+        productName: product?.name || raw.productName || raw.productKey,
+        kitSize: kit?.size || raw.kitSize || "—",
+        kitIndex,
+        categoryId,
         categoryLabel: raw.categoryLabel || "",
-        qty: raw.qty,
-        tierKey,
-      });
+        qty,
+        unitMsrp: msrp,
+        unitPrice, // discounted
+        lineMsrp,
+        lineTotal, // discounted
+        savings,
+      };
     })
     .filter(Boolean);
 }
 
-function formatMaterialOrderEmail({ order, profile, tierKey, tierLabel, pricedLines, totals }) {
+function summarizeLines(lines) {
+  const totalMsrp = +lines.reduce((s, l) => s + Number(l.lineMsrp || 0), 0).toFixed(2);
+  const totalPrice = +lines.reduce((s, l) => s + Number(l.lineTotal || 0), 0).toFixed(2);
+  const totalDiscount = +(totalMsrp - totalPrice).toFixed(2);
+  return { totalMsrp, totalDiscount, totalPrice };
+}
+
+function formatMaterialOrderEmail({ order, profile, tierKey, pricedLines, totals }) {
   const email = profile?.email || order?.user_email || "—";
   const company = profile?.company_name || profile?.businessName || "—";
   const first = profile?.first_name || profile?.firstName || "";
@@ -49,13 +150,16 @@ function formatMaterialOrderEmail({ order, profile, tierKey, tierLabel, pricedLi
   const name = `${first} ${last}`.trim() || profile?.contractorName || email;
   const membership = profile?.membership_tier || "—";
   const contractorTier = profile?.contractor_tier || profile?.assignedPricingTierKey || "—";
-  const tierTag = EMAIL_TIER_TAG[tierKey] || String(tierLabel || tierKey || "MSRP").toUpperCase();
+  const tierTag = EMAIL_TIER_TAG[tierKey] || "MSRP";
+  const tierLabel = tierDisplayLabel(tierKey);
 
+  // Example: Aspartic 85 Slow Go (Low Odor) | 3 gal x1 | SMALL BUYER $285.00 ea | line $285.00 | saves $15.00
   const lines = pricedLines
-    .map(
-      (line) =>
-        `${line.productName} | ${line.kitSize} x${line.qty} | ${tierTag} ${usd(line.unitPrice)} ea | line ${usd(line.lineTotal)} | saves ${usd(line.savings)}`
-    )
+    .map((line) => {
+      const discountedEa = Number(line.unitPrice);
+      const msrpEa = Number(line.unitMsrp);
+      return `${line.productName} | ${line.kitSize} x${line.qty} | ${tierTag} ${usd(discountedEa)} ea | line ${usd(line.lineTotal)} | saves ${usd(line.savings)} (MSRP ${usd(msrpEa)} ea)`;
+    })
     .join("\n");
 
   const body = `ECOS Material Order — submitted ${order?.created_at ? new Date(order.created_at).toLocaleString() : "—"}
@@ -66,7 +170,7 @@ Customer
   Company: ${company}
   Membership tier: ${membership}
   Contractor / FGP tier: ${contractorTier}
-  Material pricing applied: ${tierLabel || tierKey || "—"} (${tierTag})
+  Material pricing applied: ${tierLabel}
 
 Line items
 ${lines || "(none)"}
@@ -155,22 +259,47 @@ export default async function handler(req, res) {
 
     const admin = getSupabaseAdmin();
 
-    // Prefer authenticated profile from DB over client-sent profile.
+    // Merge profile: DB wins for identity, but keep client pricing fields when DB is empty/null.
     const { data: dbProfile } = await admin.from("profiles").select("*").eq("id", user.id).maybeSingle();
     const profile = {
       ...(clientProfile || {}),
       ...(dbProfile || {}),
       email: dbProfile?.email || user.email || clientProfile?.email || "",
       id: user.id,
+      membership_tier: dbProfile?.membership_tier || clientProfile?.membership_tier || "free",
+      assignedPricingTierKey:
+        dbProfile?.assignedPricingTierKey ||
+        clientProfile?.assignedPricingTierKey ||
+        "msrp",
+      contractor_tier: dbProfile?.contractor_tier || clientProfile?.contractor_tier || "",
+      isFgpCustomer: dbProfile?.isFgpCustomer ?? clientProfile?.isFgpCustomer ?? false,
+      contractorPricingApplicationReceived:
+        dbProfile?.contractorPricingApplicationReceived ??
+        clientProfile?.contractorPricingApplicationReceived ??
+        false,
     };
 
-    const tierKey = getMaterialOrderPricingTierKey(profile);
-    const tierLabel = getMaterialOrderTierLabel(tierKey);
+    const tierKey = resolveMaterialTierKey(profile, order?.pricing_tier_key);
     const pricedLines = recalculateOrderLines(rawItems, tierKey);
     if (!pricedLines.length) {
       return res.status(400).json({ error: "No valid line items to price (missing productKey)." });
     }
-    const totals = summarizeMaterialLines(pricedLines);
+    const totals = summarizeLines(pricedLines);
+
+    console.log("[send-po-email] PRICE CHECK", {
+      tierKey,
+      tierLabel: tierDisplayLabel(tierKey),
+      sample: pricedLines.slice(0, 3).map((l) => ({
+        product: l.productName,
+        unitMsrp: l.unitMsrp,
+        unitPrice: l.unitPrice,
+        savings: l.savings,
+      })),
+      totals,
+      membership: profile.membership_tier,
+      assigned: profile.assignedPricingTierKey,
+      orderPricingTierKey: order?.pricing_tier_key,
+    });
 
     // Idempotency: same client request never emails twice.
     const { data: existing, error: existingErr } = await admin
@@ -243,7 +372,6 @@ export default async function handler(req, res) {
         order: inserted,
         profile,
         tierKey,
-        tierLabel,
         pricedLines,
         totals,
       });
