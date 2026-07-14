@@ -2684,9 +2684,15 @@ export default function App() {
                 <button type="button" style={S.opt(authMode === "create")} onClick={() => setAuthMode("create")}>Create Account</button>
                 <button type="button" style={S.opt(authMode === "reset")} onClick={() => setAuthMode("reset")}>Reset Password</button>
               </div>
-              <div style={{ display: "grid", gap: 10 }}>
+              <form
+                style={{ display: "grid", gap: 10 }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleAuthSubmit();
+                }}
+              >
                 {authMode !== "reset" && (
-                  <input style={S.input} placeholder="Email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} />
+                  <input style={S.input} placeholder="Email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} autoComplete="email" />
                 )}
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <input
@@ -2695,6 +2701,7 @@ export default function App() {
                     placeholder={authMode === "reset" ? "New password" : "Password"}
                     value={authPassword}
                     onChange={(e) => setAuthPassword(e.target.value)}
+                    autoComplete={authMode === "login" ? "current-password" : "new-password"}
                   />
                   <button
                     type="button"
@@ -2778,7 +2785,7 @@ export default function App() {
                   </div>
                 )}
                 {authError && <div style={{ color: "#fca5a5", fontSize: 11 }}>{authError}</div>}
-                <button type="button" style={S.btn} onClick={handleAuthSubmit}>
+                <button type="submit" style={S.btn}>
                   {authMode === "login" ? "Login" : authMode === "create" ? "Create Account" : "Set New Password"}
                 </button>
                 {authMode === "login" && (
@@ -2786,7 +2793,7 @@ export default function App() {
                     Forgot password?
                   </button>
                 )}
-              </div>
+              </form>
             </div>
           </div>
         )}
