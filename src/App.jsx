@@ -4206,6 +4206,7 @@ export default function App() {
             ) : (
               <>
                 <MaterialOrderForm
+                  key={`material-order-${profileVersion}-${session?.user?.id || "anon"}`}
                   styles={S}
                   userProfile={userProfile}
                   session={session}

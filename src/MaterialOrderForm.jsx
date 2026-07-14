@@ -30,6 +30,12 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
   /** Sync lock — React state alone cannot stop double-clicks before re-render. */
   const submitLockRef = useRef(false);
 
+  // Clear any stuck lock if parent remounts after Testing Mode profile saves.
+  useEffect(() => {
+    submitLockRef.current = false;
+    setSubmitting(false);
+  }, []);
+
   const category = MATERIAL_CATEGORIES.find((c) => c.id === categoryId);
   const products = useMemo(() => listCatalogProducts(categoryId), [categoryId]);
   const selectedProduct = products.find((p) => p.productKey === productKey);
@@ -81,44 +87,58 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
    * Client never inserts directly — that was the failed-insert + still-email failure mode.
    */
   async function submitOrder() {
+    // Keep this as the very first statement so we always know the handler fired.
     console.log("[material-order] submitOrder START", {
       linesCount: lines.length,
       userId: session?.user?.id,
       submitting,
       locked: submitLockRef.current,
       tierKey,
+      membership: userProfile?.membership_tier,
+      isFgpCustomer: userProfile?.isFgpCustomer,
+      assignedPricingTierKey: userProfile?.assignedPricingTierKey,
     });
+
     if (lines.length === 0) {
+      console.log("[material-order] blocked: no line items");
       setMessage("Add at least one line with “+ Add line” before submitting.");
       return;
     }
     if (!session?.user?.id) {
+      console.log("[material-order] blocked: no session user id");
       setMessage("Session expired — log out and log back in, then try again.");
       return;
     }
-    if (submitLockRef.current || submitting) {
+    if (submitLockRef.current) {
       console.log("[material-order] submit blocked (already in flight)");
+      setMessage("Submit already in progress — wait a moment, or refresh if this is stuck.");
       return;
     }
+
     submitLockRef.current = true;
     setSubmitting(true);
     setMessage("Submitting material order…");
 
-    const items = lines.map(({ id: _id, ...rest }) => rest);
-    const requestId =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `mo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const orderPayload = {
-      items,
-      total_msrp: totals.totalMsrp,
-      total_discount: totals.totalDiscount,
-      total_price: totals.totalPrice,
-      pricing_tier_key: tierKey,
-      status: "submitted",
-    };
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeoutId = controller
+      ? setTimeout(() => controller.abort(), 30000)
+      : null;
 
     try {
+      const items = lines.map(({ id: _id, ...rest }) => rest);
+      const requestId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `mo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const orderPayload = {
+        items,
+        total_msrp: totals.totalMsrp,
+        total_discount: totals.totalDiscount,
+        total_price: totals.totalPrice,
+        pricing_tier_key: tierKey,
+        status: "submitted",
+      };
+
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
       const accessToken = sessionData?.session?.access_token;
@@ -132,6 +152,7 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
         emailUrl,
         requestId,
         itemCount: items.length,
+        tierKey,
       });
 
       const emailRes = await fetch(emailUrl, {
@@ -146,6 +167,7 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
           profile: userProfile,
           tierLabel,
         }),
+        signal: controller?.signal,
       });
       const emailBody = await emailRes.json().catch(() => ({}));
       console.log("[material-order] API RESPONSE", {
@@ -174,10 +196,17 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       onOrderSaved?.(saved);
     } catch (e) {
       console.error("[material-order] submitOrder FAILED", e);
-      setMessage(e?.message || "Could not submit material order.");
+      const aborted = e?.name === "AbortError";
+      setMessage(
+        aborted
+          ? "Submit timed out after 30s — check your connection and try again."
+          : e?.message || "Could not submit material order."
+      );
     } finally {
+      if (timeoutId) clearTimeout(timeoutId);
       setSubmitting(false);
       submitLockRef.current = false;
+      console.log("[material-order] submitOrder DONE (lock cleared)");
     }
   }
 
@@ -354,9 +383,18 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
           marginTop: 12,
           opacity: submitting ? 0.7 : lines.length === 0 ? 0.85 : 1,
           cursor: submitting ? "wait" : "pointer",
+          pointerEvents: "auto",
         }}
-        disabled={submitting}
-        onClick={() => submitOrder()}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log("[material-order] Submit button CLICKED", {
+            linesCount: lines.length,
+            submitting,
+            locked: submitLockRef.current,
+          });
+          void submitOrder();
+        }}
       >
         {submitting ? "Submitting…" : "Submit material PO"}
       </button>
