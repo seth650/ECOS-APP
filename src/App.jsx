@@ -1109,6 +1109,8 @@ export default function App() {
   const [adminSelfTierDraft, setAdminSelfTierDraft] = useState("msrp");
   const [adminSelfPlanDraft, setAdminSelfPlanDraft] = useState("Free");
   const [adminSelfSaveNotice, setAdminSelfSaveNotice] = useState("");
+  const [settingsToast, setSettingsToast] = useState("");
+  const settingsToastTimerRef = useRef(null);
   const [contractorAdminDraft, setContractorAdminDraft] = useState(null);
   const [contractorAdminSaveNotice, setContractorAdminSaveNotice] = useState("");
   const [isNarrowScreen, setIsNarrowScreen] = useState(
@@ -1188,18 +1190,62 @@ export default function App() {
     return updateProfileByEmail(targetEmail, { ecosPricingAdmin: !!isAdmin });
   }
 
+  function showSettingsSavedToast(message = "Settings saved") {
+    if (settingsToastTimerRef.current) clearTimeout(settingsToastTimerRef.current);
+    setSettingsToast(message);
+    setAdminSelfSaveNotice(message);
+    settingsToastTimerRef.current = setTimeout(() => {
+      setSettingsToast("");
+      setAdminSelfSaveNotice("");
+      settingsToastTimerRef.current = null;
+    }, 2500);
+  }
+
+  function goNewJobQuote() {
+    setHeaderMenuOpen(false);
+    reset();
+  }
+
+  /**
+   * Testing mode save — write tier fields by user id, unlock FGP rate-card gates so
+   * assigned buying tier actually applies in quotes, then sync session state.
+   */
   async function saveAdminSelfTesting() {
     if (!currentUser || !isPricingMasterEmail(currentUser, userProfile)) return;
-    const email = currentUser.trim().toLowerCase();
-    const ok = await updateProfileByEmail(email, {
-      assignedPricingTierKey: adminSelfTierDraft,
-      membership_tier: tierTagToMembershipTier(adminSelfPlanDraft),
-      needsAdminReview: false,
-    });
-    if (ok) {
-      setAdminSelfSaveNotice("Saved — your test settings are in effect.");
-      setTimeout(() => setAdminSelfSaveNotice(""), 4000);
+    if (!session?.user?.id) {
+      window.alert("Session expired — log out and log back in, then try again.");
+      return;
     }
+    const assigned = adminSelfTierDraft;
+    const membership = tierTagToMembershipTier(adminSelfPlanDraft);
+    // Non-MSRP assigned tiers need FGP gates on so getEffectiveContractorPricingTierKey applies them.
+    const enableRateCard = assigned !== "msrp";
+    const fields = {
+      assignedPricingTierKey: assigned,
+      membership_tier: membership,
+      contractor_tier: assigned === "msrp" ? "" : assigned,
+      isFgpCustomer: enableRateCard,
+      contractorPricingApplicationReceived: enableRateCard,
+      needsAdminReview: false,
+    };
+    const { data, error } = await supabase
+      .from("profiles")
+      .update(fields)
+      .eq("id", session.user.id)
+      .select()
+      .single();
+    if (error) {
+      window.alert(error.message || "Could not save testing settings.");
+      return;
+    }
+    const merged = normalizeUserProfile({ ...(userProfile || {}), ...(data || fields) });
+    setUserProfile(merged);
+    setAllProfilesByEmail((prev) => ({ ...prev, [currentUser.trim().toLowerCase()]: merged }));
+    setProfileVersion((v) => v + 1);
+    setCurrentPlan(membershipTierToPlanTag(merged.membership_tier || "free"));
+    setAssignedPricingTierKey(merged.assignedPricingTierKey || "msrp");
+    setContractorPricingTierKey(getEffectiveContractorPricingTierKey(merged));
+    showSettingsSavedToast("Settings saved");
   }
 
   async function saveContractorAdminPanel() {
@@ -2479,6 +2525,30 @@ export default function App() {
 
   return (
     <div style={{ ...S.app, background: `linear-gradient(180deg, ${activeTheme.tint} 0%, #000000 42%)` }}>
+      {settingsToast && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            top: 18,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10000,
+            background: "#e33433",
+            color: "#ffffff",
+            padding: "12px 22px",
+            borderRadius: 8,
+            fontFamily: "'Montserrat', sans-serif",
+            fontWeight: 900,
+            fontSize: 13,
+            letterSpacing: "0.04em",
+            boxShadow: "0 10px 28px rgba(0,0,0,0.45)",
+            border: "1px solid rgba(255,255,255,0.15)",
+          }}
+        >
+          {settingsToast}
+        </div>
+      )}
       {/* Header */}
       <div style={S.header}>
         <button
@@ -2535,7 +2605,14 @@ export default function App() {
                 </button>
               </div>
               {headerMenuOpen && (
-                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 6 }}>
+                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 6, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    style={{ background: "transparent", border: "1px solid #e33433", color: "#fff", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer", fontWeight: 900 }}
+                    onClick={goNewJobQuote}
+                  >
+                    NEW JOB QUOTE
+                  </button>
                   <button
                     type="button"
                     style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
@@ -3744,17 +3821,28 @@ export default function App() {
                           <button type="button" style={S.btn} onClick={saveAdminSelfTesting}>
                             Save testing settings
                           </button>
-                          <button type="button" style={S.btnSm} onClick={() => setPhase("questions")}>
-                            Back to ECOS
+                          <button type="button" style={S.btnSm} onClick={goNewJobQuote}>
+                            NEW JOB QUOTE
                           </button>
                         </div>
                         {adminSelfSaveNotice && (
-                          <div style={{ fontSize: 11, color: "#22c55e", fontWeight: 700 }}>{adminSelfSaveNotice}</div>
+                          <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 700 }}>{adminSelfSaveNotice}</div>
                         )}
                         <div style={{ fontSize: 10, color: "#9bb2d1", lineHeight: 1.45 }}>
-                          Effective pricing preview (after save uses cloud profile):{" "}
+                          Effective pricing preview (after save):{" "}
                           <span style={{ color: "#ffffff", fontWeight: 700 }}>
-                            {TIERS[getEffectiveContractorPricingTierKey({ ...me, assignedPricingTierKey: adminSelfTierDraft, membership_tier: tierTagToMembershipTier(adminSelfPlanDraft) })].label}
+                            {
+                              TIERS[
+                                getEffectiveContractorPricingTierKey({
+                                  ...me,
+                                  assignedPricingTierKey: adminSelfTierDraft,
+                                  membership_tier: tierTagToMembershipTier(adminSelfPlanDraft),
+                                  isFgpCustomer: adminSelfTierDraft !== "msrp",
+                                  contractorPricingApplicationReceived: adminSelfTierDraft !== "msrp",
+                                  contractor_tier: adminSelfTierDraft === "msrp" ? "" : adminSelfTierDraft,
+                                })
+                              ].label
+                            }
                           </span>
                         </div>
                       </div>
@@ -4084,8 +4172,8 @@ export default function App() {
               <button type="button" style={{ ...S.btn, background: "#e33433", marginTop: 0 }} onClick={() => goToPlans("account")}>
                 Upgrade Plan
               </button>
-              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setPhase("questions")}>
-                Back to App
+              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={goNewJobQuote}>
+                NEW JOB QUOTE
               </button>
             </div>
           </>
@@ -4169,8 +4257,8 @@ export default function App() {
                 </div>
               </>
             )}
-            <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setPhase("questions")}>
-              Back to App
+            <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={goNewJobQuote}>
+              NEW JOB QUOTE
             </button>
           </>
         )}
