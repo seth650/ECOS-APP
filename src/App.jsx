@@ -530,10 +530,10 @@ function formatOrderLineForEmail(l) {
 }
 
 /**
- * One consolidated email for Gary.
- * - JOB sections = job context only (materials live under CONSOLIDATED)
- * - Color/flake only when 2+ jobs
- * - Multi-job: include each job's contractor-pays total
+ * One email for Gary.
+ * - Single job: JOB details + materials + totals (no CONSOLIDATED header)
+ * - 2+ jobs: JOB context only, then CONSOLIDATED materials block
+ * - Color/flake + per-job pays only when 2+ jobs
  */
 function buildFgOrderEmailBody({
   jobs = [],
@@ -549,6 +549,7 @@ function buildFgOrderEmailBody({
   const discountPct = Math.round((1 - tierMult) * 100);
   const jobCount = jobs.length;
   const multiJob = jobCount > 1;
+  const materialsText = combinedOrderLines.map(formatOrderLineForEmail).join("\n") || "(no lines)";
 
   const jobBlocks = (jobs.length ? jobs : []).map((job, idx) => {
     const jobSf = Number(job.sqFt ?? job.sf ?? 0);
@@ -562,22 +563,31 @@ function buildFgOrderEmailBody({
     if (multiJob) {
       lines.push(`Color / Flake: ${job.color || "—"}`);
       lines.push(`Job contractor pays: $${Number(job.totalTier || 0).toFixed(2)}`);
+    } else {
+      // Single job: materials sit under JOB (no CONSOLIDATED section)
+      const jobLines = (job.orderLines || combinedOrderLines || []).map(formatOrderLineForEmail).join("\n");
+      lines.push("Materials:");
+      lines.push(jobLines || "(no lines)");
     }
     lines.push("");
     return lines.join("\n");
   });
 
-  const consolidatedText = combinedOrderLines.map(formatOrderLineForEmail).join("\n");
-
-  return [
+  const bodyParts = [
     "FGP Midwest — ECOS material order",
     `Jobs in this PO: ${jobCount}`,
     `Buying tier: ${tierLabel} (${discountPct}% off MSRP)`,
     "",
     ...jobBlocks,
-    "=== CONSOLIDATED ORDER (what to pull / enter in Square) ===",
-    consolidatedText || "(no lines)",
-    "",
+  ];
+
+  if (multiJob) {
+    bodyParts.push("=== CONSOLIDATED ORDER (what to pull / enter in Square) ===");
+    bodyParts.push(materialsText);
+    bodyParts.push("");
+  }
+
+  bodyParts.push(
     `TOTAL AREA: ${Number(totalSqFt || 0).toLocaleString()} ft²`,
     `SUBTOTAL MSRP: $${Number(totalMsrp || 0).toFixed(2)}`,
     `TOTAL DISCOUNT: -$${Number(totalDiscount || 0).toFixed(2)}`,
@@ -587,12 +597,14 @@ function buildFgOrderEmailBody({
       : null,
     "",
     "--- PO notes for Gary (internal) ---",
-    "Square: enter consolidated line items at MSRP, then apply a single discount to the invoice total equal to TOTAL DISCOUNT above if entering invoice using Desktop. If using cart checkout with barcodes, adjust price to buying tier Price. Each JOB section above is for pull / staging; CONSOLIDATED is what to invoice for anything more than 1 job.",
+    multiJob
+      ? "Square: enter consolidated line items at MSRP, then apply a single discount to the invoice total equal to TOTAL DISCOUNT above if entering invoice using Desktop. If using cart checkout with barcodes, adjust price to buying tier Price. Each JOB section above is for pull / staging; CONSOLIDATED is what to invoice for 2+ jobs."
+      : "Square: enter line items at MSRP, then apply a single discount to the invoice total equal to TOTAL DISCOUNT above if entering invoice using Desktop. If using cart checkout with barcodes, adjust price to buying tier Price.",
     "",
-    "Sent automatically from ECOS (epoxyquoting.com).",
-  ]
-    .filter((line) => line != null)
-    .join("\n");
+    "Sent automatically from ECOS (epoxyquoting.com)."
+  );
+
+  return bodyParts.filter((line) => line != null).join("\n");
 }
 
 function openFgOrderEmail(body, subject) {

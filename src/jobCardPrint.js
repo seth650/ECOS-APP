@@ -46,10 +46,16 @@ export function buildJobCardChecklistItems(orderLines = []) {
     }
     const size = String(line.kitSize || "kit").trim();
     const qty = Math.max(1, Math.floor(Number(line.qty) || 1));
-    // "40lb box" / "pair" already have a unit; "3 gal" → "1×3 gal kit"
-    const hasUnitWord = /\b(kit|box|bag|jar|pair|each|pack)\b/i.test(size);
-    const kitWord = qty === 1 ? "kit" : "kits";
-    g.pulls.push(hasUnitWord ? `${qty}×${size}` : `${qty}×${size} ${kitWord}`);
+    const productLabel = `${line.product || ""} ${line.layer || ""}`;
+    // E-Poly pigments ship as jars (not kits)
+    if (/e-?poly\s*pigment/i.test(productLabel) || /^32\s*oz$/i.test(size)) {
+      g.pulls.push(`${qty}×jar`);
+    } else {
+      // "40lb box" / "pair" already have a unit; "3 gal" → "1×3 gal kit"
+      const hasUnitWord = /\b(kit|box|bag|jar|pair|each|pack)\b/i.test(size);
+      const kitWord = qty === 1 ? "kit" : "kits";
+      g.pulls.push(hasUnitWord ? `${qty}×${size}` : `${qty}×${size} ${kitWord}`);
+    }
   }
 
   return [...groups.values()].map((g) => {
