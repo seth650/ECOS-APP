@@ -529,7 +529,10 @@ function formatOrderLineForEmail(l) {
 }
 
 /**
- * One consolidated email for Gary: every job listed, then kit totals across the cart.
+ * One consolidated email for Gary.
+ * - JOB sections = job context only (materials live under CONSOLIDATED)
+ * - Color/flake only when 2+ jobs
+ * - Multi-job: include each job's contractor-pays total
  */
 function buildFgOrderEmailBody({
   jobs = [],
@@ -543,29 +546,31 @@ function buildFgOrderEmailBody({
   totalSqFt,
 }) {
   const discountPct = Math.round((1 - tierMult) * 100);
+  const jobCount = jobs.length;
+  const multiJob = jobCount > 1;
+
   const jobBlocks = (jobs.length ? jobs : []).map((job, idx) => {
-    const jobLines = Array.isArray(job.orderLines) ? job.orderLines : [];
-    const lineText = jobLines.map(formatOrderLineForEmail).join("\n");
     const jobSf = Number(job.sqFt ?? job.sf ?? 0);
-    return [
-      `=== JOB ${idx + 1} of ${jobs.length}: ${job.jobNamePo || "Untitled Job / PO"} ===`,
+    const systemLine = [`System: ${job.systemCode || "—"}`, job.systemLabel].filter(Boolean).join(" — ");
+    const lines = [
+      `=== JOB ${idx + 1} of ${jobCount}: ${job.jobNamePo || "Untitled Job / PO"} ===`,
       `Address: ${job.address || "—"}`,
-      `System: ${job.systemCode || "—"} — ${job.systemLabel || ""}`.trim(),
+      systemLine,
       `Area: ${jobSf.toLocaleString()} ft²`,
-      `Color / flake: ${job.color || "—"}`,
-      "",
-      "Materials (this job):",
-      lineText || "(no lines)",
-      `Job contractor pays: $${Number(job.totalTier || 0).toFixed(2)}`,
-      "",
-    ].join("\n");
+    ];
+    if (multiJob) {
+      lines.push(`Color / Flake: ${job.color || "—"}`);
+      lines.push(`Job contractor pays: $${Number(job.totalTier || 0).toFixed(2)}`);
+    }
+    lines.push("");
+    return lines.join("\n");
   });
 
   const consolidatedText = combinedOrderLines.map(formatOrderLineForEmail).join("\n");
 
   return [
     "FGP Midwest — ECOS material order",
-    `Jobs in this PO: ${jobs.length}`,
+    `Jobs in this PO: ${jobCount}`,
     `Buying tier: ${tierLabel} (${discountPct}% off MSRP)`,
     "",
     ...jobBlocks,
@@ -582,7 +587,6 @@ function buildFgOrderEmailBody({
     "",
     "--- PO notes for Gary (internal) ---",
     "Square: enter consolidated line items at MSRP, then apply a single discount to the invoice total equal to TOTAL DISCOUNT above.",
-    "Each JOB section above is for pull / staging; CONSOLIDATED is what to invoice.",
     "",
     "Sent automatically from ECOS (epoxyquoting.com).",
   ]
@@ -3781,7 +3785,7 @@ export default function App() {
                 THANK YOU
               </div>
               <div style={{ fontSize: 14, color: "#d2def1", lineHeight: 1.6, marginBottom: 10 }}>
-                Your Order has been submitted. We will begin staging your order and ordering in anything not in Stock, we will Notify you within 24-48 hrs. of a total ETA on all products in the order.
+                ✅ Order submitted! We'll send you an invoice to pay shortly. Questions? Call 502-640-2394
               </div>
               {orderSubmitMessage && (
                 <div style={{ fontSize: 12, color: "#f5d676", marginBottom: 10 }}>{orderSubmitMessage}</div>
