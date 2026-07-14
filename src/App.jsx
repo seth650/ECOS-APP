@@ -524,52 +524,70 @@ function getRecommendedSystem(answers, _planTag = "Free") {
   return null;
 }
 
+function formatOrderLineForEmail(l) {
+  return `${l.product} | ${l.layer || "—"} | ${l.kitSize} x${l.qty} | needs ${l.totalNeeded} | MSRP $${Number(l.msrpEa || 0).toFixed(2)} ea | line $${Number(l.lineTier || 0).toFixed(2)}`;
+}
+
+/**
+ * One consolidated email for Gary: every job listed, then kit totals across the cart.
+ */
 function buildFgOrderEmailBody({
-  jobNamePo,
-  address,
-  systemCode,
-  systemLabel,
-  sqFt,
+  jobs = [],
   tierLabel,
   tierMult,
-  orderLines,
+  combinedOrderLines = [],
   totalMsrp,
   totalDiscount,
   totalTier,
   requiredMaterialTierTotal,
+  totalSqFt,
 }) {
   const discountPct = Math.round((1 - tierMult) * 100);
-  const lineText = orderLines
-    .map(
-      (l) =>
-        `${l.product} | ${l.layer} | ${l.kitSize} x${l.qty} | needs ${l.totalNeeded} | MSRP $${l.msrpEa.toFixed(2)} ea | line $${l.lineTier.toFixed(2)}`
-    )
-    .join("\n");
+  const jobBlocks = (jobs.length ? jobs : []).map((job, idx) => {
+    const jobLines = Array.isArray(job.orderLines) ? job.orderLines : [];
+    const lineText = jobLines.map(formatOrderLineForEmail).join("\n");
+    const jobSf = Number(job.sqFt ?? job.sf ?? 0);
+    return [
+      `=== JOB ${idx + 1} of ${jobs.length}: ${job.jobNamePo || "Untitled Job / PO"} ===`,
+      `Address: ${job.address || "—"}`,
+      `System: ${job.systemCode || "—"} — ${job.systemLabel || ""}`.trim(),
+      `Area: ${jobSf.toLocaleString()} ft²`,
+      `Color / flake: ${job.color || "—"}`,
+      "",
+      "Materials (this job):",
+      lineText || "(no lines)",
+      `Job contractor pays: $${Number(job.totalTier || 0).toFixed(2)}`,
+      "",
+    ].join("\n");
+  });
+
+  const consolidatedText = combinedOrderLines.map(formatOrderLineForEmail).join("\n");
 
   return [
-    "FGP Midwest — ECOS material order (V1)",
-    "",
-    `Job / PO #: ${jobNamePo || "—"}`,
-    `Address: ${address || "—"}`,
-    `System: ${systemCode} — ${systemLabel}`,
-    `Area: ${Number(sqFt).toLocaleString()} ft²`,
+    "FGP Midwest — ECOS material order",
+    `Jobs in this PO: ${jobs.length}`,
     `Buying tier: ${tierLabel} (${discountPct}% off MSRP)`,
     "",
-    "--- Materials ---",
-    lineText || "(no lines)",
+    ...jobBlocks,
+    "=== CONSOLIDATED ORDER (what to pull / enter in Square) ===",
+    consolidatedText || "(no lines)",
     "",
-    `SUBTOTAL MSRP: $${totalMsrp.toFixed(2)}`,
-    `TOTAL DISCOUNT: -$${totalDiscount.toFixed(2)}`,
-    `CONTRACTOR PAYS: $${totalTier.toFixed(2)}`,
-    sqFt > 0
-      ? `Required material $ / ft² (${Number(sqFt).toLocaleString()} ft²): $${(requiredMaterialTierTotal / sqFt).toFixed(2)}/ft²`
-      : "",
+    `TOTAL AREA: ${Number(totalSqFt || 0).toLocaleString()} ft²`,
+    `SUBTOTAL MSRP: $${Number(totalMsrp || 0).toFixed(2)}`,
+    `TOTAL DISCOUNT: -$${Number(totalDiscount || 0).toFixed(2)}`,
+    `CONTRACTOR PAYS: $${Number(totalTier || 0).toFixed(2)}`,
+    Number(totalSqFt || 0) > 0
+      ? `Required material $ / ft²: $${(Number(requiredMaterialTierTotal || 0) / Number(totalSqFt)).toFixed(2)}/ft²`
+      : null,
     "",
     "--- PO notes for Gary (internal) ---",
-    "Square: enter all line items at MSRP, then apply a single discount to the invoice total equal to TOTAL DISCOUNT above.",
+    "Square: enter consolidated line items at MSRP, then apply a single discount to the invoice total equal to TOTAL DISCOUNT above.",
+    "Each JOB section above is for pull / staging; CONSOLIDATED is what to invoice.",
     "",
-    "Sent from ECOS (client mailto — replace with server send when wired).",
-  ].join("\n");
+    "Sent automatically from ECOS (epoxyquoting.com).",
+  ]
+    .filter((line) => line != null)
+    .join("\n");
 }
 
 function openFgOrderEmail(body, subject) {
@@ -2212,26 +2230,36 @@ export default function App() {
       );
       if (!ok) return;
     }
+    const jobsForPo = [...orderJobs, currentJobSnapshot].filter(Boolean).map((j) => ({
+      jobNamePo: j.jobNamePo || contractorName || "Untitled Job / PO",
+      address: j.address || jobName || "—",
+      systemCode: j.systemCode || recommendedSystem.code,
+      systemLabel: j.systemLabel || recommendedSystem.label,
+      sqFt: j.sf,
+      totalTier: j.totalTier,
+      totalMsrp: j.totalMsrp,
+      totalDiscount: j.totalDiscount,
+      color: j.color,
+      costPerSqFt: j.requiredMaterialCostPerSqFt,
+      orderLines: j.orderLines || [],
+    }));
     const body = buildFgOrderEmailBody({
-      jobNamePo: contractorName,
-      address: jobName,
-      systemCode: recommendedSystem.code,
-      systemLabel: recommendedSystem.label,
-      sqFt: combinedTotals.totalSqFt,
+      jobs: jobsForPo,
       tierLabel: TIERS[contractorPricingTierKey].label,
       tierMult: TIERS[contractorPricingTierKey].mult,
-      orderLines: combinedOrderLines,
+      combinedOrderLines,
       totalMsrp: combinedTotals.totalMsrp,
       totalDiscount: combinedTotals.totalDiscount,
       totalTier: combinedTotals.totalTier,
       requiredMaterialTierTotal: combinedTotals.requiredMaterialTierTotal,
+      totalSqFt: combinedTotals.totalSqFt,
     });
-    const subject = `ECOS order — ${contractorName || "Job"} — ${orderJobs.length + 1} job(s)`;
+    const subject = `ECOS order — ${jobsForPo.length} job(s) — $${Number(combinedTotals.totalTier || 0).toFixed(2)}`;
     setSubmittedDraft({
       subject,
       body,
-      jobNamePo: contractorName || "Untitled Job / PO",
-      address: jobName || "—",
+      jobNamePo: jobsForPo.map((j) => j.jobNamePo).join(" + ") || "Untitled Job / PO",
+      address: jobsForPo.map((j) => j.address).join(" | ") || "—",
       systemCode: recommendedSystem.code,
       totalTier: combinedTotals.totalTier,
       sqFt: combinedTotals.totalSqFt,
@@ -2239,6 +2267,10 @@ export default function App() {
         combinedTotals.totalSqFt > 0
           ? +(combinedTotals.requiredMaterialTierTotal / combinedTotals.totalSqFt).toFixed(2)
           : 0,
+      jobs: jobsForPo,
+      combinedOrderLines,
+      totalMsrp: combinedTotals.totalMsrp,
+      totalDiscount: combinedTotals.totalDiscount,
     });
     setOrderSubmitMessage("Sending PO to FGP Midwest...");
     try {
@@ -2258,20 +2290,12 @@ export default function App() {
       console.error(sendErr);
     }
     if (session?.user?.id) {
-      const jobs = [...orderJobs, currentJobSnapshot].filter(Boolean).map((j) => ({
-        jobNamePo: j.jobNamePo,
-        systemCode: j.systemCode,
-        sqFt: j.sf,
-        totalTier: j.totalTier,
-        color: j.color,
-        costPerSqFt: j.requiredMaterialCostPerSqFt,
-        orderLines: j.orderLines || [],
-      }));
+      const jobs = jobsForPo;
       const orderRecord = {
         user_id: session.user.id,
         created_at: new Date().toISOString(),
-        job_name: contractorName || "Untitled Job / PO",
-        address: jobName || "—",
+        job_name: jobs.map((j) => j.jobNamePo).join(" + ") || "Untitled Job / PO",
+        address: jobs.map((j) => j.address).filter(Boolean).join(" | ") || "—",
         system_code: recommendedSystem.code,
         total_cost: combinedTotals.totalTier,
         sq_footage: combinedTotals.totalSqFt,
@@ -2500,39 +2524,127 @@ export default function App() {
       sqFt: orderRecord.sq_footage || orderRecord.sqFt,
       orderLines: orderRecord.order_lines || [],
     }];
-    const cards = jobs
-      .map((job) => {
-        const lines = (job.orderLines || orderRecord.order_lines || [])
-          .map((l) => `<li>${l.product} — ${l.qty} x ${l.kitSize} (usage: ${l.totalNeeded})</li>`)
-          .join("");
-        return `
+    const pageHtml = [];
+    for (let i = 0; i < jobs.length; i += 2) {
+      const slice = jobs
+        .slice(i, i + 2)
+        .map((job) => {
+          const lines = (job.orderLines || orderRecord.order_lines || [])
+            .map((l) => `<li>${l.product} — ${l.qty}×${l.kitSize} <span class="muted">(${l.totalNeeded})</span></li>`)
+            .join("");
+          return `
           <div class="card">
             <h2>${job.jobNamePo || orderRecord.jobNamePo || "Job Card"}</h2>
-            <p><strong>Date:</strong> ${new Date(orderRecord.created_at || orderRecord.submittedAt || Date.now()).toLocaleDateString()}</p>
-            <p><strong>System:</strong> ${job.systemCode || orderRecord.systemCode || "—"}</p>
-            <p><strong>Sq Ft:</strong> ${Number(job.sqFt || orderRecord.sqFt || 0).toLocaleString()}</p>
-            <p><strong>Materials:</strong></p>
+            <p><strong>Date:</strong> ${new Date(orderRecord.created_at || orderRecord.submittedAt || Date.now()).toLocaleDateString()}
+               · <strong>System:</strong> ${job.systemCode || orderRecord.systemCode || "—"}
+               · <strong>Sq Ft:</strong> ${Number(job.sqFt || orderRecord.sqFt || 0).toLocaleString()}</p>
             <ul>${lines || "<li>No line items captured.</li>"}</ul>
-          </div>
-        `;
-      })
-      .join("");
+          </div>`;
+        })
+        .join("");
+      pageHtml.push(`<div class="page"><div class="grid">${slice}</div></div>`);
+    }
     win.document.write(`
       <html>
         <head>
           <title>Job Card</title>
           <style>
-            @media print { .grid { page-break-inside: avoid; } }
-            body { font-family: Arial, sans-serif; margin: 18px; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-            .card { border: 1px solid #222; padding: 12px; min-height: 350px; }
-            h2 { margin: 0 0 8px; font-size: 18px; }
-            p { margin: 4px 0; font-size: 13px; }
-            ul { margin: 6px 0 0 16px; font-size: 12px; line-height: 1.45; }
+            @page { size: letter; margin: 0.4in; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; margin: 0; color: #111; }
+            .page { page-break-after: always; }
+            .page:last-child { page-break-after: auto; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-height: 9.5in; align-content: stretch; }
+            .card { border: 1px solid #222; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+            .grid .card:only-child { grid-column: 1 / -1; max-width: 50%; }
+            h2 { margin: 0 0 4px; font-size: 14px; line-height: 1.2; }
+            p { margin: 0 0 4px; font-size: 10px; line-height: 1.3; }
+            ul { margin: 0; padding-left: 16px; font-size: 10px; line-height: 1.25; flex: 1; overflow: hidden; }
+            .muted { color: #555; }
           </style>
         </head>
         <body>
-          <div class="grid">${cards}</div>
+          ${pageHtml.join("")}
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  }
+
+  /** Condensed one-page Print/Save PO for the results screen (fits letter). */
+  function printConsolidatedPo() {
+    if (!results || !recommendedSystem || !combinedTotals) return;
+    const jobs = [...orderJobs, currentJobSnapshot].filter(Boolean);
+    const win = window.open("", "_blank", "width=900,height=1100");
+    if (!win) return;
+    const jobRows = jobs
+      .map(
+        (j, i) =>
+          `<tr>
+            <td>${i + 1}</td>
+            <td>${j.jobNamePo || "—"}</td>
+            <td>${j.systemCode || "—"}</td>
+            <td class="num">${Number(j.sf || 0).toLocaleString()}</td>
+            <td class="num">$${Number(j.totalTier || 0).toFixed(2)}</td>
+          </tr>`
+      )
+      .join("");
+    const materialRows = (combinedOrderLines || [])
+      .map(
+        (l) =>
+          `<tr>
+            <td>${l.product}</td>
+            <td>${l.kitSize}</td>
+            <td class="num">${l.qty}</td>
+            <td>${l.totalNeeded}</td>
+            <td class="num">$${Number(l.lineTier || 0).toFixed(2)}</td>
+          </tr>`
+      )
+      .join("");
+    win.document.write(`
+      <html>
+        <head>
+          <title>ECOS PO — ${jobs.length} job(s)</title>
+          <style>
+            @page { size: letter; margin: 0.4in; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, Helvetica, sans-serif; margin: 0; color: #111; font-size: 10px; }
+            h1 { margin: 0 0 2px; font-size: 15px; }
+            .meta { margin: 0 0 8px; color: #333; font-size: 10px; }
+            h2 { margin: 8px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #222; padding-bottom: 2px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+            th, td { border: 1px solid #ccc; padding: 2px 4px; vertical-align: top; }
+            th { background: #f0f0f0; text-align: left; font-size: 9px; text-transform: uppercase; }
+            .num { text-align: right; white-space: nowrap; }
+            .totals { width: auto; margin-left: auto; }
+            .totals td { border: none; padding: 1px 0 1px 16px; font-size: 11px; }
+            .totals .pay { font-weight: 700; font-size: 12px; }
+            .note { font-size: 9px; color: #444; margin-top: 6px; }
+          </style>
+        </head>
+        <body>
+          <h1>ECOS Material PO — ${jobs.length} job(s)</h1>
+          <div class="meta">
+            ${new Date().toLocaleString()} · Tier: ${TIERS[contractorPricingTierKey].label}
+            · Total area: ${Number(combinedTotals.totalSqFt || 0).toLocaleString()} ft²
+          </div>
+          <h2>Jobs</h2>
+          <table>
+            <thead><tr><th>#</th><th>Job / PO</th><th>System</th><th>Sq Ft</th><th>Pays</th></tr></thead>
+            <tbody>${jobRows}</tbody>
+          </table>
+          <h2>Consolidated materials (order these)</h2>
+          <table>
+            <thead><tr><th>Product</th><th>Kit</th><th>Qty</th><th>Needs</th><th>Line</th></tr></thead>
+            <tbody>${materialRows || "<tr><td colspan='5'>No lines</td></tr>"}</tbody>
+          </table>
+          <table class="totals">
+            <tr><td>Total MSRP</td><td class="num">$${Number(combinedTotals.totalMsrp || 0).toFixed(2)}</td></tr>
+            <tr><td>Total discount</td><td class="num">−$${Number(combinedTotals.totalDiscount || 0).toFixed(2)}</td></tr>
+            <tr class="pay"><td>Contractor pays</td><td class="num">$${Number(combinedTotals.totalTier || 0).toFixed(2)}</td></tr>
+          </table>
+          <div class="note">Enter consolidated lines at MSRP in Square, then apply a single discount equal to Total discount.</div>
           <script>window.print();</script>
         </body>
       </html>
@@ -3638,7 +3750,7 @@ export default function App() {
                   </button>
                 </>
               )}
-              <button type="button" style={{ ...S.btn, background: activeTheme.accent, marginTop: 0 }} onClick={() => window.print()}>
+              <button type="button" style={{ ...S.btn, background: activeTheme.accent, marginTop: 0 }} onClick={printConsolidatedPo}>
                 Print / Save PO
               </button>
               {/*

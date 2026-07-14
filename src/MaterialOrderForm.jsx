@@ -27,6 +27,8 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
   const [lines, setLines] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  const [successToast, setSuccessToast] = useState("");
+  const successToastTimerRef = useRef(null);
   /** Sync lock — React state alone cannot stop double-clicks before re-render. */
   const submitLockRef = useRef(false);
 
@@ -35,6 +37,24 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
     submitLockRef.current = false;
     setSubmitting(false);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (successToastTimerRef.current) clearTimeout(successToastTimerRef.current);
+    };
+  }, []);
+
+  function showSuccessToast() {
+    const text =
+      "✅ Order submitted! We'll send you an invoice to pay shortly. Questions? Call 502-640-2394";
+    if (successToastTimerRef.current) clearTimeout(successToastTimerRef.current);
+    setSuccessToast(text);
+    setMessage(text);
+    successToastTimerRef.current = setTimeout(() => {
+      setSuccessToast("");
+      successToastTimerRef.current = null;
+    }, 8000);
+  }
 
   const category = MATERIAL_CATEGORIES.find((c) => c.id === categoryId);
   const products = useMemo(() => listCatalogProducts(categoryId), [categoryId]);
@@ -191,7 +211,7 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       } else if (emailBody.emailed === false) {
         setMessage("Material order saved, but email to Gary may not have sent. Check with FGP.");
       } else {
-        setMessage("Material order submitted. Gary has been emailed a copy.");
+        showSuccessToast();
       }
       onOrderSaved?.(saved);
     } catch (e) {
@@ -215,6 +235,32 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
 
   return (
     <div style={{ ...S.card, marginTop: 12, border: "1px solid #113a72" }}>
+      {successToast && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            top: 18,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10050,
+            maxWidth: "min(520px, calc(100vw - 24px))",
+            background: "#166534",
+            color: "#ffffff",
+            padding: "14px 18px",
+            borderRadius: 8,
+            fontFamily: "'Montserrat', sans-serif",
+            fontWeight: 800,
+            fontSize: 13,
+            lineHeight: 1.4,
+            textAlign: "center",
+            boxShadow: "0 10px 28px rgba(0,0,0,0.45)",
+            border: "1px solid #86efac",
+          }}
+        >
+          {successToast}
+        </div>
+      )}
       <div style={{ fontSize: 13, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 6 }}>
         Material Order Form
       </div>
@@ -400,7 +446,16 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       </button>
 
       {message && (
-        <div style={{ marginTop: 10, fontSize: 11, color: message.includes("submitted") ? "#86efac" : "#fca5a5" }}>{message}</div>
+        <div
+          style={{
+            marginTop: 10,
+            fontSize: 11,
+            color: /submitted|invoice/i.test(message) ? "#86efac" : "#fca5a5",
+            lineHeight: 1.45,
+          }}
+        >
+          {message}
+        </div>
       )}
     </div>
   );
