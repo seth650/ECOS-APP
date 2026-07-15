@@ -13,36 +13,58 @@ import { openJobCardPrint } from "./jobCardPrint.js";
 const HEADER_LOGO_URL = "/favicon.svg";
 /** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
 const SUPABASE_SWATCH_BUCKET = "Color Swatches";
-/** Trimmed system cutaway diagrams (no header/footer). Public bucket; filenames = `{SYSTEM-CODE}.png`. */
+/** Trimmed system cutaway diagrams (no header/footer). Public bucket; filenames = `{SYSTEM-KEY}.jpg`. */
 const SUPABASE_SYSTEM_CUTAWAY_BUCKET = "System Cutaways";
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
 
+if (!SUPABASE_URL) {
+  console.warn("[cutaway] VITE_SUPABASE_URL is missing — system cutaway images will not load.");
+} else {
+  console.info("[cutaway] VITE_SUPABASE_URL set:", SUPABASE_URL);
+}
+
 /** Public URL for a file in the System Cutaways storage bucket. */
 function systemCutawayUrl(fileName) {
-  if (!SUPABASE_URL || !fileName) return null;
+  if (!SUPABASE_URL || !fileName) {
+    console.warn("[cutaway] cannot build URL — missing SUPABASE_URL or fileName", {
+      hasUrl: !!SUPABASE_URL,
+      fileName,
+    });
+    return null;
+  }
   const encodedPath = String(fileName)
     .split("/")
     .filter(Boolean)
     .map((s) => encodeURIComponent(s))
     .join("/");
-  return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(SUPABASE_SYSTEM_CUTAWAY_BUCKET)}/${encodedPath}`;
+  // Bucket name has a space → encodeURIComponent → "System%20Cutaways"
+  const url = `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(SUPABASE_SYSTEM_CUTAWAY_BUCKET)}/${encodedPath}`;
+  return url;
 }
 
 /**
- * Explicit cutaway files (upload these trimmed PNGs to Storage → System Cutaways).
- * Any other system falls back to `{systemKey}.png` (slashes → hyphens).
+ * Explicit cutaway files (upload these JPGs to Storage → System Cutaways).
+ * Any other system falls back to `{systemKey}.jpg` (slashes → hyphens).
  */
 const SYSTEM_CUTAWAY_FILES = {
-  "FLK-ID-RES": "FLK-ID-RES.png",
-  "FLK-OD-RES": "FLK-OD-RES.png",
+  "FLK-OD-RES": "FLK-OD-RES.jpg",
+  "FLK-ID-RES": "FLK-ID-RES.jpg",
+  "FLK-ID-COM": "FLK-ID-COM.jpg",
+  "METALLIC-ID": "METALLIC-ID.jpg",
+  "QUARTZ-ID-COM": "QUARTZ-ID-COM.jpg",
+  "SC-ID-EZ-CLEAN": "SC-ID-EZ-CLEAN.jpg",
+  "SC-ID-TEX": "SC-ID-TEX.jpg",
+  "GRIND-SEAL": "GRIND-SEAL.jpg",
 };
 
 function resolveSystemCutawayImage(systemKey, systemCode) {
   const file =
     SYSTEM_CUTAWAY_FILES[systemKey] ||
     SYSTEM_CUTAWAY_FILES[systemCode] ||
-    `${String(systemKey || systemCode || "").replace(/\//g, "-")}.png`;
-  return systemCutawayUrl(file);
+    `${String(systemKey || systemCode || "").replace(/\//g, "-")}.jpg`;
+  const url = systemCutawayUrl(file);
+  console.info("[cutaway] resolve", { systemKey, systemCode, file, url });
+  return url;
 }
 
 // ─── PRIVATE LABEL MAP ───────────────────────────────────────────────────────
@@ -381,7 +403,7 @@ const SYSTEMS = {
     warnings: [
       "Double broadcast system",
       "Slip resistance required — safety + decorative + durability",
-      "Broadcast coat 1 follows moisture: none → HyperBond Clear · moderate → HyperPrime MVB · high → MV2112",
+      "Broadcast coat 1 follows moisture: none → pigmented HyperBond · moderate → HyperPrime MVB · high → MV2112",
     ],
     layers: (sf, opts) => {
       const items = [];
@@ -406,7 +428,7 @@ const SYSTEMS = {
         items.push({
           key: "hyperbond",
           gals: bc1Gals,
-          label: "Broadcast Coat 1 — HyperBond (Clear)",
+          label: "Broadcast Coat 1 — Pigmented HyperBond",
           notes: "160 ft²/gal · 2:1 · E-Poly +10%",
         });
       }
@@ -491,7 +513,7 @@ const SYSTEMS = {
   },
 };
 
-// Wire cutaway diagram URLs (Supabase Storage → "System Cutaways" / `{CODE}.png`).
+// Wire cutaway diagram URLs (Supabase Storage → "System Cutaways" / `{CODE}.jpg`).
 for (const [key, system] of Object.entries(SYSTEMS)) {
   system.cutawayImage = resolveSystemCutawayImage(key, system.code);
 }
@@ -729,7 +751,7 @@ function getRecommendationReason(answers, systemKey) {
     return "Quartz broadcast coat 1 uses MV2112 when moisture risk is high.";
   if (answers.finish === "quartz" && answers.moisture === "moderate")
     return "Quartz broadcast coat 1 uses HyperPrime MVB when moisture risk is moderate.";
-  if (answers.finish === "quartz") return "Quartz finish uses HyperBond Clear for broadcast coat 1 when moisture risk is low.";
+  if (answers.finish === "quartz") return "Quartz finish uses pigmented HyperBond for broadcast coat 1 when moisture risk is low.";
   return "Best fit based on your current location, finish, and refine answers.";
 }
 
@@ -3573,9 +3595,19 @@ export default function App() {
                                 alt={`${recommendedSystem.code} system cutaway`}
                                 loading="lazy"
                                 decoding="async"
-                                onError={() =>
-                                  setCutawayImgFailed((prev) => ({ ...prev, [activeSystemKey]: true }))
-                                }
+                                onLoad={() => {
+                                  console.info("[cutaway] load success", {
+                                    systemKey: activeSystemKey,
+                                    url: cutawayUrl,
+                                  });
+                                }}
+                                onError={() => {
+                                  console.error("[cutaway] load error / fetch failed", {
+                                    systemKey: activeSystemKey,
+                                    url: cutawayUrl,
+                                  });
+                                  setCutawayImgFailed((prev) => ({ ...prev, [activeSystemKey]: true }));
+                                }}
                                 style={{
                                   display: "block",
                                   width: "100%",
