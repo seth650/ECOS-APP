@@ -378,12 +378,39 @@ const SYSTEMS = {
     label: "Epoxy Quartz, Indoor Commercial",
     code: "QUARTZ-ID-COM",
     priceRange: "$10–12/ft²",
-    warnings: ["Double broadcast system", "Slip resistance required — safety + decorative + durability"],
+    warnings: [
+      "Double broadcast system",
+      "Slip resistance required — safety + decorative + durability",
+      "Broadcast coat 1 follows moisture: none → HyperBond Clear · moderate → HyperPrime MVB · high → MV2112",
+    ],
     layers: (sf, opts) => {
       const items = [];
-      if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
-      items.push({ key: "mv2112", gals: sf / 160, label: "Broadcast Coat 1 — MV2112 Pigmented", notes: "160 ft²/gal · 2:1 · E-Poly +10%" });
-      items.push({ key: "epoly_pigment", gals: (sf / 160) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
+      pushCrackRepairAddOn(items, sf, opts);
+      const bc1Rate = 160;
+      const bc1Gals = sf / bc1Rate;
+      if (opts.moisture === "high") {
+        items.push({
+          key: "mv2112",
+          gals: bc1Gals,
+          label: "Broadcast Coat 1 — MV2112",
+          notes: "160 ft²/gal · 2:1 · E-Poly +10%",
+        });
+      } else if (opts.moisture === "moderate") {
+        items.push({
+          key: "hyperprime_mvb",
+          gals: bc1Gals,
+          label: "Broadcast Coat 1 — HyperPrime MVB",
+          notes: "160 ft²/gal · 2:1 · E-Poly +10%",
+        });
+      } else {
+        items.push({
+          key: "hyperbond",
+          gals: bc1Gals,
+          label: "Broadcast Coat 1 — HyperBond (Clear)",
+          notes: "160 ft²/gal · 2:1 · E-Poly +10%",
+        });
+      }
+      items.push({ key: "epoly_pigment", gals: (sf / bc1Rate) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
       items.push({ key: "quartz_agg", lbs: sf * 1.0, label: "Colored Quartz Aggregate (Broadcast 1)", notes: "1.0 lb/ft² conservative for double broadcast" });
       items.push({ key: "dt454_turbo", gals: sf / 90, label: "Broadcast Coat 2 — DT-454 Clear (Turbo)", notes: "90–120 ft²/gal · 2:1" });
       items.push({ key: "quartz_agg", lbs: sf * 1.0, label: "Colored Quartz Aggregate (Broadcast 2)", notes: "second broadcast · 1.0 lb/ft² conservative" });
@@ -698,7 +725,11 @@ function getRecommendationReason(answers, systemKey) {
   if (answers.finish === "solid" && answers.moisture === "moderate")
     return "Moderate moisture adds HyperPrime MVB to the solid-color build.";
   if (answers.finish === "metallic") return "Metallic finish prioritizes artistic flow and clarity.";
-  if (answers.finish === "quartz") return "Quartz finish targets safety, broadcast texture, and durability.";
+  if (answers.finish === "quartz" && answers.moisture === "high")
+    return "Quartz broadcast coat 1 uses MV2112 when moisture risk is high.";
+  if (answers.finish === "quartz" && answers.moisture === "moderate")
+    return "Quartz broadcast coat 1 uses HyperPrime MVB when moisture risk is moderate.";
+  if (answers.finish === "quartz") return "Quartz finish uses HyperBond Clear for broadcast coat 1 when moisture risk is low.";
   return "Best fit based on your current location, finish, and refine answers.";
 }
 
