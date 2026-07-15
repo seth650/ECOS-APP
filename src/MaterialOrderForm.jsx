@@ -13,12 +13,23 @@ import {
   getMaterialOrderPricingTierKey,
   getMaterialOrderTierLabel,
 } from "./materialOrderPricing.js";
+import { getPoCounterLabel } from "./poLimits.js";
 
 const usd = (n) => `$${Number(n || 0).toFixed(2)}`;
 
-export default function MaterialOrderForm({ styles: S, userProfile, session, onOrderSaved, onSubmitSuccess }) {
+export default function MaterialOrderForm({
+  styles: S,
+  userProfile,
+  session,
+  poUsage,
+  onUpgrade,
+  onOrderSaved,
+  onSubmitSuccess,
+}) {
   const tierKey = useMemo(() => getMaterialOrderPricingTierKey(userProfile || {}), [userProfile]);
   const tierLabel = getMaterialOrderTierLabel(tierKey);
+  const poCounterLabel = poUsage ? getPoCounterLabel(poUsage) : "";
+  const poBlocked = !!poUsage?.atLimit;
 
   const [categoryId, setCategoryId] = useState(MATERIAL_CATEGORIES[0].id);
   const [productKey, setProductKey] = useState("");
@@ -128,6 +139,10 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       setMessage("Add at least one line with “+ Add line” before submitting.");
       return;
     }
+    if (poBlocked) {
+      setMessage("PO limit reached — upgrade to Tier 2 for unlimited submissions.");
+      return;
+    }
     if (!session?.user?.id) {
       console.log("[material-order] blocked: no session user id");
       setMessage("Session expired — log out and log back in, then try again.");
@@ -206,7 +221,7 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
           setLines([]);
           showSuccessToast();
           try {
-            onOrderSaved?.(emailBody.order);
+            onOrderSaved?.(emailBody.order, { annual_po_count: emailBody.annual_po_count });
           } catch (cbErr) {
             console.error("[material-order] onOrderSaved callback error", cbErr);
           }
@@ -233,7 +248,7 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       }
       setLines([]);
       try {
-        onOrderSaved?.(saved);
+        onOrderSaved?.(saved, { annual_po_count: emailBody.annual_po_count });
       } catch (cbErr) {
         console.error("[material-order] onOrderSaved callback error", cbErr);
       }
@@ -423,6 +438,31 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
 
       {lines.length > 0 && (
         <div style={{ marginTop: 14, padding: 12, background: "#000", borderRadius: 8, border: "1px solid #113a72" }}>
+          {poCounterLabel && (
+            <div
+              style={{
+                fontSize: 11,
+                color: poUsage?.atLimit ? "#fca5a5" : poUsage?.atWarning ? "#f5d676" : "#9bb2d1",
+                marginBottom: 10,
+                fontWeight: 700,
+              }}
+            >
+              {poCounterLabel}
+            </div>
+          )}
+          {poUsage?.atWarning && !poUsage?.atLimit && (
+            <div style={{ fontSize: 11, color: "#f5d676", marginBottom: 10 }}>
+              {poUsage.count} of {poUsage.limit} POs used this year
+            </div>
+          )}
+          {poUsage?.atLimit && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 900, marginBottom: 6 }}>PO limit reached</div>
+              <button type="button" style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }} onClick={() => onUpgrade?.()}>
+                Upgrade to Tier 2 for unlimited
+              </button>
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#d2def1", marginBottom: 6 }}>
             <span>Total MSRP</span>
             <span>{usd(totals.totalMsrp)}</span>
@@ -446,12 +486,13 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
 
       <button
         type="button"
+        disabled={submitting || poBlocked}
         style={{
           ...S.btn,
           width: "100%",
           marginTop: 12,
-          opacity: submitting ? 0.7 : lines.length === 0 ? 0.85 : 1,
-          cursor: submitting ? "wait" : "pointer",
+          opacity: submitting || poBlocked ? 0.7 : lines.length === 0 ? 0.85 : 1,
+          cursor: submitting || poBlocked ? "not-allowed" : "pointer",
           pointerEvents: "auto",
         }}
         onClick={(e) => {
@@ -465,7 +506,7 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
           void submitOrder();
         }}
       >
-        {submitting ? "Submitting…" : "Submit material PO"}
+        {submitting ? "Submitting…" : poBlocked ? "PO limit reached" : "Submit material PO"}
       </button>
 
       {message && (

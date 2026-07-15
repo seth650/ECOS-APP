@@ -9,6 +9,14 @@ import {
 } from "./products.js";
 import MaterialOrderForm from "./MaterialOrderForm.jsx";
 import { openJobCardPrint } from "./jobCardPrint.js";
+import {
+  MAX_FREE_JOBS,
+  applyPoYearResetIfNeeded,
+  getMaxJobsForMembershipTier,
+  getPoCounterLabel,
+  getTier1PoStatus,
+  normalizePoProfileFields,
+} from "./poLimits.js";
 
 const HEADER_LOGO_URL = "/favicon.svg";
 /** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
@@ -74,10 +82,7 @@ function resolveSystemCutawayImage(systemKey, systemCode) {
 
 // Default polyaspartic topcoat used by system logic.
 const DEFAULT_POLYASPARTIC_TOPCOAT_KEY = "aspartic85";
-const MAX_FREE_JOBS = 2;
-const MAX_TIER1_JOBS = 10;
 const MAX_FREE_STORED_ORDERS = 5;
-const MAX_TIER1_POS_PER_YEAR = 50;
 
 const FGP_ORDER_EMAIL = "orders@fgpmidwest.com";
 const CONTRACTOR_PRICING_APP_URL = "https://contractors.floorguardproductsmidwest.com/epoxy-twins-contractor-pricing-program-page";
@@ -94,18 +99,9 @@ function membershipTierToPlanTag(tier = "free") {
   return "Free";
 }
 
-function getMaxJobsForMembershipTier(tier = "free") {
-  return tier === "tier1" ? MAX_TIER1_JOBS : MAX_FREE_JOBS;
-}
-
 function getAnniversaryWindowStart(anniversaryIso) {
-  const now = new Date();
-  const base = anniversaryIso ? new Date(anniversaryIso) : now;
-  const anniversaryThisYear = new Date(now.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
-  if (anniversaryThisYear > now) {
-    return new Date(now.getFullYear() - 1, base.getMonth(), base.getDate(), 0, 0, 0, 0);
-  }
-  return anniversaryThisYear;
+  const reset = applyPoYearResetIfNeeded({ po_year_start_date: anniversaryIso, annual_po_count: 0 });
+  return new Date(reset.po_year_start_date);
 }
 
 // ─── TIER MULTIPLIERS ────────────────────────────────────────────────────────
@@ -184,8 +180,11 @@ function normalizeUserProfile(raw) {
   if (p.needsAdminReview === undefined) p.needsAdminReview = true;
   if (p.ecosPricingAdmin === undefined) p.ecosPricingAdmin = false;
   if (!p.membership_tier) p.membership_tier = tierTagToMembershipTier(p.plan || "Free");
-  if (!p.signup_anniversary_date) p.signup_anniversary_date = p.createdAt || new Date().toISOString();
-  if (p.pos_submitted_this_year === undefined) p.pos_submitted_this_year = 0;
+  const poFields = normalizePoProfileFields(p);
+  p.po_year_start_date = poFields.po_year_start_date;
+  p.annual_po_count = poFields.annual_po_count;
+  if (!p.signup_anniversary_date) p.signup_anniversary_date = p.po_year_start_date;
+  if (p.pos_submitted_this_year === undefined) p.pos_submitted_this_year = p.annual_po_count;
   if (!p.logo_url) p.logo_url = "";
   if (!p.brand_color_primary) p.brand_color_primary = "#113a72";
   if (!p.brand_color_secondary) p.brand_color_secondary = "#e33433";
@@ -1493,7 +1492,9 @@ export default function App() {
       ecosPricingAdmin: existing.ecosPricingAdmin ?? false,
       needsAdminReview: existing.needsAdminReview ?? true,
       signup_anniversary_date: existing.signup_anniversary_date || new Date().toISOString(),
-      pos_submitted_this_year: existing.pos_submitted_this_year || 0,
+      po_year_start_date: existing.po_year_start_date || existing.signup_anniversary_date || new Date().toISOString(),
+      annual_po_count: existing.annual_po_count ?? existing.pos_submitted_this_year ?? 0,
+      pos_submitted_this_year: existing.pos_submitted_this_year ?? existing.annual_po_count ?? 0,
       logo_url: existing.logo_url || "",
       brand_color_primary: existing.brand_color_primary || "#113a72",
       brand_color_secondary: existing.brand_color_secondary || "#e33433",
@@ -1522,6 +1523,54 @@ export default function App() {
     setMaterialOrderHistory(data || []);
   }
 
+  async function syncPoYearOnLogin(activeSession, profileForWindow = null) {
+    if (!activeSession?.user?.id) return 0;
+    const profile = normalizeUserProfile(profileForWindow || userProfile || {});
+    const reset = applyPoYearResetIfNeeded(profile);
+    const windowStart = reset.po_year_start_date;
+    const patch = {};
+
+    if (reset.changed) {
+      patch.po_year_start_date = reset.po_year_start_date;
+      patch.annual_po_count = reset.annual_po_count;
+      patch.pos_submitted_this_year = reset.annual_po_count;
+    }
+
+    const [ordersRes, materialRes] = await Promise.all([
+      supabase
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", activeSession.user.id)
+        .gte("created_at", windowStart),
+      supabase
+        .from("material_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", activeSession.user.id)
+        .gte("created_at", windowStart),
+    ]);
+
+    const reconciled =
+      (ordersRes.count ?? 0) +
+      (materialRes.count ?? 0);
+    const currentCount = reset.annual_po_count ?? 0;
+    if (reconciled > currentCount) {
+      patch.annual_po_count = reconciled;
+      patch.pos_submitted_this_year = reconciled;
+    }
+
+    if (Object.keys(patch).length) {
+      try {
+        await updateProfileFields(patch);
+      } catch (err) {
+        console.error("[ECOS po] syncPoYearOnLogin profile update failed", err);
+      }
+    }
+
+    const nextCount = patch.annual_po_count ?? currentCount;
+    setPoCountThisYear(nextCount);
+    return nextCount;
+  }
+
   async function loadPoHistory(activeSession, profileForWindow = null) {
     if (!activeSession?.user?.id) return;
     const { data, error } = await supabase
@@ -1543,9 +1592,7 @@ export default function App() {
         jobs: o.jobs || [],
       }))
     );
-    const profile = normalizeUserProfile(profileForWindow || userProfile || {});
-    const start = getAnniversaryWindowStart(profile.signup_anniversary_date).toISOString();
-    setPoCountThisYear(rows.filter((o) => (o.created_at || "") >= start).length);
+    await syncPoYearOnLogin(activeSession, profileForWindow || userProfile);
   }
 
   async function updateProfileFields(fields) {
@@ -1915,6 +1962,8 @@ export default function App() {
   const totalJobsInOrder = orderJobs.length + (currentJobSnapshot ? 1 : 0);
   const membershipTier = userProfile?.membership_tier || "free";
   const maxActiveJobs = getMaxJobsForMembershipTier(membershipTier);
+  const poUsage = getTier1PoStatus({ ...(userProfile || {}), annual_po_count: poCountThisYear });
+  const poCounterLabel = getPoCounterLabel(poUsage);
   const combinedOrderLines = results
     ? aggregateOrderLines([...orderJobs.map((j) => j.orderLines), results.orderLines])
     : [];
@@ -2461,11 +2510,7 @@ export default function App() {
 
   async function handleSubmitOrder() {
     if (!results || !recommendedSystem || !combinedTotals) return;
-    if (membershipTier === "tier1" && poCountThisYear >= MAX_TIER1_POS_PER_YEAR) {
-      const wantsUpgrade = window.confirm("You have reached 50 PO submissions this year. Upgrade to Tier 2?");
-      if (wantsUpgrade) setPhase("plans");
-      return;
-    }
+    if (poUsage.atLimit) return;
     if (activeSystemFamily === "flake" && baseCoatDeviatesFromFlakeRecommendation(answers.color, answers.baseCoatColor)) {
       const pick = answers.baseCoatColor || "this base coat color";
       const recs = getRecommendedBaseCoatLabels(answers.color);
@@ -2565,9 +2610,9 @@ export default function App() {
         } else {
           const nextHistory = [inserted, ...poHistory];
           setPoHistory(nextHistory);
-          const start = getAnniversaryWindowStart(userProfile?.signup_anniversary_date).toISOString();
-          const countInWindow = nextHistory.filter((o) => (o.created_at || "") >= start).length;
-          setPoCountThisYear(countInWindow);
+          const nextCount = (poUsage.count || 0) + 1;
+          setPoCountThisYear(nextCount);
+          const start = getAnniversaryWindowStart(userProfile?.po_year_start_date || userProfile?.signup_anniversary_date).toISOString();
           const now = new Date();
           const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
           const quarterStart = new Date(now.getFullYear(), quarterStartMonth, 1).toISOString();
@@ -2579,7 +2624,8 @@ export default function App() {
             .reduce((sum, o) => sum + Number(o.total_cost || o.totalTier || 0), 0);
           try {
             await updateProfileFields({
-              pos_submitted_this_year: countInWindow,
+              annual_po_count: nextCount,
+              pos_submitted_this_year: nextCount,
               total_pos_value_this_quarter: totalQuarter,
               total_pos_value_this_year: totalYear,
             });
@@ -2590,6 +2636,7 @@ export default function App() {
       } else {
         console.warn("[ECOS submit] no session user — skipped orders insert");
       }
+      setOrderJobs([]);
     } finally {
       // Always show confirmation even if history/profile updates fail after Gary was emailed.
       showAppSuccessToast();
@@ -2628,6 +2675,10 @@ export default function App() {
     setSqFt(orderRecord.sqFt ? String(orderRecord.sqFt) : "");
     setPhase("questions");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleArchiveCartJob(index) {
+    setOrderJobs((prev) => prev.filter((_, i) => i !== index));
   }
 
   function handleAddAnotherJobToOrder() {
@@ -3350,11 +3401,22 @@ export default function App() {
           </div>
         )}
 
-        {currentUser && membershipTier === "tier1" && poCountThisYear >= 45 && poCountThisYear < MAX_TIER1_POS_PER_YEAR && (
+        {currentUser && membershipTier === "tier1" && poUsage.atWarning && (
           <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.14)", marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>
-              You have {MAX_TIER1_POS_PER_YEAR - poCountThisYear} PO submissions remaining this year.
+              {poUsage.count} of {poUsage.limit} POs used this year
             </div>
+          </div>
+        )}
+
+        {currentUser && membershipTier === "tier1" && poUsage.atLimit && (
+          <div style={{ ...S.card, border: "1px solid #e33433", background: "rgba(227, 52, 51, 0.14)", marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: "#fca5a5", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 6 }}>
+              PO limit reached
+            </div>
+            <button type="button" style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }} onClick={() => setPhase("plans")}>
+              Upgrade to Tier 2 for unlimited
+            </button>
           </div>
         )}
 
@@ -4029,6 +4091,13 @@ export default function App() {
                       <div style={{ fontSize: 11, color: "#eab308", marginTop: 4 }}>
                         ${job.requiredMaterialCostPerSqFt.toFixed(2)}/ft²
                       </div>
+                      <button
+                        type="button"
+                        style={{ ...S.btnSm, marginTop: 8, borderColor: "#9bb2d1", color: "#d2def1" }}
+                        onClick={() => handleArchiveCartJob(idx)}
+                      >
+                        Archive job
+                      </button>
                     </div>
                   );
                 })}
@@ -4196,6 +4265,7 @@ export default function App() {
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
               <button
                 type="button"
+                disabled={totalJobsInOrder >= maxActiveJobs}
                 style={{
                   ...S.btnSm,
                   width: "100%",
@@ -4203,6 +4273,7 @@ export default function App() {
                   color: "#ffffff",
                   border: "1px solid #113a72",
                   opacity: totalJobsInOrder >= maxActiveJobs ? 0.65 : 1,
+                  cursor: totalJobsInOrder >= maxActiveJobs ? "not-allowed" : "pointer",
                 }}
                 onClick={handleAddAnotherJobToOrder}
               >
@@ -4212,16 +4283,18 @@ export default function App() {
                 <>
                   <div style={{ fontSize: 11, color: "#9bb2d1", textAlign: "center" }}>
                     {membershipTier === "tier1"
-                      ? `Tier 1 active-job limit reached (${MAX_TIER1_JOBS} jobs max).`
+                      ? "Tier 1 limit: 10 active jobs. Archive or submit to add more."
                       : `Free plan limit reached (${MAX_FREE_JOBS} jobs max).`}
                   </div>
-                  <button
-                    type="button"
-                    style={{ ...S.btnSm, width: "100%", border: "1px solid #eab308", color: "#f5d676", background: "rgba(234, 179, 8, 0.1)" }}
-                    onClick={() => setPhase("plans")}
-                  >
-                    Upgrade plan to add more jobs
-                  </button>
+                  {membershipTier === "free" && (
+                    <button
+                      type="button"
+                      style={{ ...S.btnSm, width: "100%", border: "1px solid #eab308", color: "#f5d676", background: "rgba(234, 179, 8, 0.1)" }}
+                      onClick={() => setPhase("plans")}
+                    >
+                      Upgrade plan to add more jobs
+                    </button>
+                  )}
                 </>
               )}
               <button type="button" style={{ ...S.btn, background: activeTheme.accent, marginTop: 0 }} onClick={printConsolidatedPo}>
@@ -4245,10 +4318,24 @@ export default function App() {
               <button type="button" style={{ ...S.hookDisabled, width: "100%" }} disabled>
                 Calculate profit (Upgrade to Tier 2 — The Estimator)
               </button>
+              {membershipTier === "tier1" && poCounterLabel && (
+                <div style={{ fontSize: 11, color: poUsage.atLimit ? "#fca5a5" : poUsage.atWarning ? "#f5d676" : "#9bb2d1", textAlign: "center" }}>
+                  {poCounterLabel}
+                </div>
+              )}
+              {membershipTier === "tier1" && poUsage.atLimit && (
+                <div style={{ ...S.card, border: "1px solid #e33433", background: "rgba(227, 52, 51, 0.12)", padding: 10 }}>
+                  <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 900, marginBottom: 6 }}>PO limit reached</div>
+                  <button type="button" style={{ ...S.btnSm, width: "100%", borderColor: "#e33433", color: "#fff" }} onClick={() => setPhase("plans")}>
+                    Upgrade to Tier 2 for unlimited
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
-                style={{ ...S.btn, background: "#e33433", marginTop: 0 }}
+                style={{ ...S.btn, background: "#e33433", marginTop: 0, opacity: poUsage.atLimit ? 0.55 : 1, cursor: poUsage.atLimit ? "not-allowed" : "pointer" }}
                 onClick={handleSubmitOrder}
+                disabled={poUsage.atLimit}
               >
                 Submit Order to FGP Midwest
               </button>
@@ -4397,8 +4484,8 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                <div><span style={{ color: "#9bb2d1" }}>POs used this year:</span> <span style={{ color: "#ffffff" }}>{poCountThisYear}{membershipTier === "tier1" ? ` / ${MAX_TIER1_POS_PER_YEAR}` : ""}</span></div>
-                <div><span style={{ color: "#9bb2d1" }}>Signup anniversary:</span> <span style={{ color: "#ffffff" }}>{new Date((userProfile?.signup_anniversary_date || Date.now())).toLocaleDateString()}</span></div>
+                <div><span style={{ color: "#9bb2d1" }}>POs used this year:</span> <span style={{ color: "#ffffff" }}>{poCounterLabel || `${poCountThisYear}`}</span></div>
+                <div><span style={{ color: "#9bb2d1" }}>PO year started:</span> <span style={{ color: "#ffffff" }}>{new Date((userProfile?.po_year_start_date || userProfile?.signup_anniversary_date || Date.now())).toLocaleDateString()}</span></div>
                 {!isCurrentUserPricingMaster && !activeUserProfile?.contractorPricingApplicationReceived && (
                   <div style={{ marginTop: 4, fontSize: 10, color: "#f5d676", lineHeight: 1.45 }}>
                     Apply for contractor pricing to get the most out of your account and material pricing.{" "}
@@ -4953,7 +5040,7 @@ export default function App() {
             {membershipTier === "free" ? (
               <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.08)" }}>
                 <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
-                  Upgrade to Tier 1 to unlock Unlimited PO submission, order history, and Job Card printing.
+                  Upgrade to Tier 1 for order history, Job Card printing, and unlimited POs in Tier 1.
                 </div>
                 <div style={{ filter: "blur(3px)", opacity: 0.7, pointerEvents: "none" }}>
                   {(poHistory.slice(0, 3).length ? poHistory.slice(0, 3) : [{ id: "locked1" }, { id: "locked2" }]).map((o, idx) => (
@@ -4973,13 +5060,48 @@ export default function App() {
               </div>
             ) : (
               <>
+                {poCounterLabel && (
+                  <div
+                    style={{
+                      ...S.card,
+                      marginBottom: 12,
+                      border: poUsage.atLimit ? "1px solid #e33433" : poUsage.atWarning ? "1px solid #eab308" : "1px solid #113a72",
+                      background: poUsage.atLimit
+                        ? "rgba(227, 52, 51, 0.12)"
+                        : poUsage.atWarning
+                          ? "rgba(234, 179, 8, 0.12)"
+                          : "rgba(15, 36, 64, 0.88)",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, color: poUsage.atLimit ? "#fca5a5" : poUsage.atWarning ? "#f5d676" : "#d2def1", fontWeight: 900 }}>
+                      {poCounterLabel}
+                    </div>
+                    {poUsage.atLimit && (
+                      <button type="button" style={{ ...S.btnSm, marginTop: 8, borderColor: "#e33433", color: "#fff" }} onClick={() => setPhase("plans")}>
+                        Upgrade to Tier 2 for unlimited
+                      </button>
+                    )}
+                  </div>
+                )}
                 <MaterialOrderForm
                   key={`material-order-${session?.user?.id || "anon"}`}
                   styles={S}
                   userProfile={userProfile}
                   session={session}
+                  poUsage={poUsage}
+                  onUpgrade={() => setPhase("plans")}
                   onSubmitSuccess={showAppSuccessToast}
-                  onOrderSaved={async (row) => {
+                  onOrderSaved={async (row, meta) => {
+                    if (typeof meta?.annual_po_count === "number") {
+                      setPoCountThisYear(meta.annual_po_count);
+                      setUserProfile((prev) =>
+                        normalizeUserProfile({
+                          ...(prev || {}),
+                          annual_po_count: meta.annual_po_count,
+                          pos_submitted_this_year: meta.annual_po_count,
+                        })
+                      );
+                    }
                     setMaterialOrderHistory((prev) => [row, ...prev]);
                     if (session?.user?.id) await loadMaterialOrderHistory(session);
                   }}

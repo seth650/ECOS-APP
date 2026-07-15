@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "./_lib/supabaseAdmin.js";
+import { ensurePoYearCurrent, incrementAnnualPoCount, isTier1PoLimitReached } from "./_lib/poTracking.js";
+import { MAX_TIER1_POS_PER_YEAR } from "../src/poLimits.js";
 import { PRODUCTS } from "../src/products.js";
 import { isAncillaryCategory } from "../src/materialOrderCatalog.js";
 import { getMaterialOrderPricingTierKey, MATERIAL_PRICING_TIERS } from "../src/materialOrderPricing.js";
@@ -279,6 +281,19 @@ export default async function handler(req, res) {
         false,
     };
 
+    let poProfile = await ensurePoYearCurrent(admin, user.id, profile);
+    profile.annual_po_count = poProfile.annual_po_count;
+    profile.po_year_start_date = poProfile.po_year_start_date;
+
+    if (isTier1PoLimitReached(poProfile)) {
+      return res.status(403).json({
+        error: `PO limit reached (${MAX_TIER1_POS_PER_YEAR} per year). Upgrade to Tier 2 for unlimited submissions.`,
+        code: "PO_LIMIT_REACHED",
+        annual_po_count: poProfile.annual_po_count,
+        limit: MAX_TIER1_POS_PER_YEAR,
+      });
+    }
+
     const tierKey = resolveMaterialTierKey(profile, order?.pricing_tier_key);
     const pricedLines = recalculateOrderLines(rawItems, tierKey);
     if (!pricedLines.length) {
@@ -366,7 +381,14 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Insert returned no row — refusing to email Gary." });
     }
 
-    console.log("[send-po-email] BEFORE email to Gary", { orderId: inserted.id, tierKey });
+    let annualPoCount = poProfile.annual_po_count;
+    try {
+      annualPoCount = await incrementAnnualPoCount(admin, user.id, poProfile);
+    } catch (counterErr) {
+      console.error("[send-po-email] annual_po_count increment failed", counterErr);
+    }
+
+    console.log("[send-po-email] BEFORE email to Gary", { orderId: inserted.id, tierKey, annualPoCount });
     try {
       const emailJson = await sendGaryEmail({
         order: inserted,
@@ -384,6 +406,7 @@ export default async function handler(req, res) {
         emailId: emailJson?.id || null,
         tierKey,
         totals,
+        annual_po_count: annualPoCount,
       });
     } catch (emailErr) {
       console.error("[send-po-email] email failed after insert", emailErr);
