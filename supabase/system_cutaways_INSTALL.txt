@@ -8,10 +8,10 @@ System Cutaways — Supabase Storage setup
 2. Upload trimmed cutaway PNGs (no header/footer), filenames exact:
    FLK-ID-RES.png
    FLK-OD-RES.png
-   FLK-PR-EPO.png
+   (add more as you create them — see SYSTEMS in src/App.jsx)
 
 3. Optional: any other system uses `{SYSTEM-KEY}.png`
-   (slashes become hyphens, e.g. FLK-ID-COM/MV → FLK-ID-COM-MV.png)
+   (slashes become hyphens, e.g. SC-ID-EZ-CLEAN → SC-ID-EZ-CLEAN.png)
 
 App builds public URLs from VITE_SUPABASE_URL + this bucket + filename
 (see SYSTEM_CUTAWAY_FILES / resolveSystemCutawayImage in src/App.jsx).
