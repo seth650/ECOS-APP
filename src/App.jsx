@@ -13,7 +13,38 @@ import { openJobCardPrint } from "./jobCardPrint.js";
 const HEADER_LOGO_URL = "/favicon.svg";
 /** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
 const SUPABASE_SWATCH_BUCKET = "Color Swatches";
+/** Trimmed system cutaway diagrams (no header/footer). Public bucket; filenames = `{SYSTEM-CODE}.png`. */
+const SUPABASE_SYSTEM_CUTAWAY_BUCKET = "System Cutaways";
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+
+/** Public URL for a file in the System Cutaways storage bucket. */
+function systemCutawayUrl(fileName) {
+  if (!SUPABASE_URL || !fileName) return null;
+  const encodedPath = String(fileName)
+    .split("/")
+    .filter(Boolean)
+    .map((s) => encodeURIComponent(s))
+    .join("/");
+  return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(SUPABASE_SYSTEM_CUTAWAY_BUCKET)}/${encodedPath}`;
+}
+
+/**
+ * Explicit cutaway files (upload these trimmed PNGs to Storage → System Cutaways).
+ * Any other system falls back to `{systemKey}.png` (slashes → hyphens).
+ */
+const SYSTEM_CUTAWAY_FILES = {
+  "FLK-ID-RES": "FLK-ID-RES.png",
+  "FLK-OD-RES": "FLK-OD-RES.png",
+  "FLK-PR-EPO": "FLK-PR-EPO.png",
+};
+
+function resolveSystemCutawayImage(systemKey, systemCode) {
+  const file =
+    SYSTEM_CUTAWAY_FILES[systemKey] ||
+    SYSTEM_CUTAWAY_FILES[systemCode] ||
+    `${String(systemKey || systemCode || "").replace(/\//g, "-")}.png`;
+  return systemCutawayUrl(file);
+}
 
 // ─── PRIVATE LABEL MAP ───────────────────────────────────────────────────────
 // SurfKoat MCU 85        = EZ Top 85 (Epoxy Twins PL)
@@ -403,6 +434,11 @@ const SYSTEMS = {
     }
   },
 };
+
+// Wire cutaway diagram URLs (Supabase Storage → "System Cutaways" / `{CODE}.png`).
+for (const [key, system] of Object.entries(SYSTEMS)) {
+  system.cutawayImage = resolveSystemCutawayImage(key, system.code);
+}
 
 const LOCATION_OPTIONS = [
   {
@@ -1146,6 +1182,8 @@ export default function App() {
   const [flakeSwatchUrls, setFlakeSwatchUrls] = useState({});
   const [metallicSwatchUrls, setMetallicSwatchUrls] = useState({});
   const [solidSwatchUrls, setSolidSwatchUrls] = useState({});
+  const [systemCutawayModal, setSystemCutawayModal] = useState(null); // { url, code, label } | null
+  const [cutawayImgFailed, setCutawayImgFailed] = useState({}); // systemKey → true when 404 / load error
   const [adminSelfTierDraft, setAdminSelfTierDraft] = useState("msrp");
   const [adminSelfPlanDraft, setAdminSelfPlanDraft] = useState("Free");
   const [adminSelfSaveNotice, setAdminSelfSaveNotice] = useState("");
@@ -2820,6 +2858,56 @@ export default function App() {
           {appSuccessToast}
         </div>
       )}
+      {systemCutawayModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${systemCutawayModal.code} system cutaway`}
+          style={{ ...S.modalOverlay, zIndex: 10060, background: "rgba(0,0,0,0.9)", padding: 12 }}
+          onClick={() => setSystemCutawayModal(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setSystemCutawayModal(null);
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 960,
+              background: "#0a1830",
+              border: "1px solid #113a72",
+              borderRadius: 12,
+              padding: 12,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.55)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 900, color: "#fff", fontFamily: "'Montserrat', sans-serif" }}>
+                  {systemCutawayModal.code}
+                </div>
+                <div style={{ fontSize: 11, color: "#9bb2d1" }}>{systemCutawayModal.label}</div>
+              </div>
+              <button type="button" style={S.btnSm} onClick={() => setSystemCutawayModal(null)}>
+                Close
+              </button>
+            </div>
+            <img
+              src={systemCutawayModal.url}
+              alt={`${systemCutawayModal.code} full system cutaway`}
+              style={{
+                display: "block",
+                width: "100%",
+                height: "auto",
+                maxHeight: "min(80vh, 900px)",
+                objectFit: "contain",
+                background: "#000",
+                borderRadius: 8,
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {checkoutOverlay && (
         <div style={{ ...S.modalOverlay, zIndex: 10001, background: "rgba(0,0,0,0.88)" }}>
@@ -2908,9 +2996,9 @@ export default function App() {
                   type="button"
                   style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 10, padding: "3px 6px", cursor: "pointer" }}
                   onClick={() => setHeaderMenuOpen((v) => !v)}
-                  title="Account menu"
+                  title="Menu"
                 >
-                  ☰ Account
+                  ☰ Menu
                 </button>
               </div>
               {headerMenuOpen && (
@@ -3340,31 +3428,109 @@ export default function App() {
                 ) : (
                   <div style={{ ...S.card, border: `1px solid ${activeTheme.accent}`, background: "rgba(15, 36, 64, 0.88)" }}>
                     <div style={S.badge}>Recommended System</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff", marginBottom: 4, fontFamily: "'Montserrat', sans-serif" }}>
-                      {recommendedSystem.code}
-                    </div>
-                    <div style={{ fontSize: 13, color: "#d2def1", marginBottom: 6 }}>{recommendedSystem.label}</div>
-                    <div style={{ fontSize: 12, color: "#ffffff", marginBottom: 10 }}>
-                      {getRecommendationReason(answers, activeSystemKey)}
-                    </div>
-                    {activeSystemBenchmarkPerSqFt !== null && (
-                      <div style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 12, color: "#eab308", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>
-                          Avg materials @ {SYSTEM_BENCHMARK_SQFT} ft²: ${activeSystemBenchmarkPerSqFt.toFixed(2)}/ft²
+                    {(() => {
+                      const cutawayUrl = recommendedSystem.cutawayImage;
+                      const showCutaway =
+                        !!cutawayUrl &&
+                        !cutawayImgFailed[activeSystemKey] &&
+                        isRenderableSwatchUrl(cutawayUrl);
+                      return (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: isNarrowScreen ? "column" : "row",
+                            gap: 12,
+                            alignItems: "stretch",
+                          }}
+                        >
+                          <div style={{ flex: showCutaway ? "1 1 60%" : "1 1 100%", minWidth: 0 }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff", marginBottom: 4, fontFamily: "'Montserrat', sans-serif" }}>
+                              {recommendedSystem.code}
+                            </div>
+                            <div style={{ fontSize: 13, color: "#d2def1", marginBottom: 6 }}>{recommendedSystem.label}</div>
+                            <div style={{ fontSize: 12, color: "#ffffff", marginBottom: 10 }}>
+                              {getRecommendationReason(answers, activeSystemKey)}
+                            </div>
+                            {activeSystemBenchmarkPerSqFt !== null && (
+                              <div style={{ marginBottom: 8, maxWidth: showCutaway ? "100%" : 420 }}>
+                                <div style={{ fontSize: 12, color: "#eab308", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>
+                                  Avg materials @ {SYSTEM_BENCHMARK_SQFT} ft²: ${activeSystemBenchmarkPerSqFt.toFixed(2)}/ft²
+                                </div>
+                                <div style={{ fontSize: 10, color: "#eab308" }}>
+                                  {benchmarkDisclaimer}
+                                </div>
+                              </div>
+                            )}
+                            <div style={{ marginTop: 8, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
+                              <div style={{ fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "#9bb2d1", marginBottom: 6, fontFamily: "'Encode Sans Expanded', sans-serif" }}>
+                                System notes
+                              </div>
+                              {recommendedSystem.warnings.map((w, i) => (
+                                <div key={i} style={{ fontSize: 11, color: "#d2def1", lineHeight: 1.45, marginBottom: 6 }}>{w}</div>
+                              ))}
+                            </div>
+                          </div>
+                          {showCutaway && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSystemCutawayModal({
+                                  url: cutawayUrl,
+                                  code: recommendedSystem.code,
+                                  label: recommendedSystem.label,
+                                })
+                              }
+                              title="View full system cutaway"
+                              style={{
+                                flex: isNarrowScreen ? "0 0 auto" : "0 0 40%",
+                                maxWidth: isNarrowScreen ? "100%" : "40%",
+                                alignSelf: isNarrowScreen ? "stretch" : "center",
+                                padding: 0,
+                                margin: 0,
+                                border: "1px solid rgba(255,255,255,0.2)",
+                                borderRadius: 8,
+                                overflow: "hidden",
+                                background: "#0a1830",
+                                cursor: "zoom-in",
+                                display: "block",
+                              }}
+                            >
+                              <img
+                                src={cutawayUrl}
+                                alt={`${recommendedSystem.code} system cutaway`}
+                                loading="lazy"
+                                decoding="async"
+                                onError={() =>
+                                  setCutawayImgFailed((prev) => ({ ...prev, [activeSystemKey]: true }))
+                                }
+                                style={{
+                                  display: "block",
+                                  width: "100%",
+                                  height: "auto",
+                                  maxHeight: isNarrowScreen ? 180 : 220,
+                                  objectFit: "contain",
+                                  objectPosition: "center",
+                                  background: "#0a1830",
+                                }}
+                              />
+                              <div
+                                style={{
+                                  fontSize: 9,
+                                  letterSpacing: "0.1em",
+                                  textTransform: "uppercase",
+                                  color: "#9bb2d1",
+                                  padding: "4px 6px 6px",
+                                  textAlign: "center",
+                                  fontFamily: "'Encode Sans Expanded', sans-serif",
+                                }}
+                              >
+                                Tap to enlarge
+                              </div>
+                            </button>
+                          )}
                         </div>
-                        <div style={{ fontSize: 10, color: "#eab308" }}>
-                          {benchmarkDisclaimer}
-                        </div>
-                      </div>
-                    )}
-                    <div style={{ marginTop: 8, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
-                      <div style={{ fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "#9bb2d1", marginBottom: 6, fontFamily: "'Encode Sans Expanded', sans-serif" }}>
-                        System notes
-                      </div>
-                      {recommendedSystem.warnings.map((w, i) => (
-                        <div key={i} style={{ fontSize: 11, color: "#d2def1", lineHeight: 1.45, marginBottom: 6 }}>{w}</div>
-                      ))}
-                    </div>
+                      );
+                    })()}
                   </div>
                 )}
 

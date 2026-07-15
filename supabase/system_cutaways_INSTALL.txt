@@ -1,0 +1,17 @@
+System Cutaways — Supabase Storage setup
+========================================
+
+1. Dashboard → Storage → New bucket
+   Name (exact): System Cutaways
+   Public: Yes (so the calculator can load images without signed URLs)
+
+2. Upload trimmed cutaway PNGs (no header/footer), filenames exact:
+   FLK-ID-RES.png
+   FLK-OD-RES.png
+   FLK-PR-EPO.png
+
+3. Optional: any other system uses `{SYSTEM-KEY}.png`
+   (slashes become hyphens, e.g. FLK-ID-COM/MV → FLK-ID-COM-MV.png)
+
+App builds public URLs from VITE_SUPABASE_URL + this bucket + filename
+(see SYSTEM_CUTAWAY_FILES / resolveSystemCutawayImage in src/App.jsx).
