@@ -1122,6 +1122,10 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
   const [orderSubmitMessage, setOrderSubmitMessage] = useState("");
+  /** App-level toast — survives MaterialOrderForm remounts / auth re-hydration. */
+  const [appSuccessToast, setAppSuccessToast] = useState("");
+  const appSuccessToastTimerRef = useRef(null);
+  const userProfileRef = useRef(null);
   const [stripeBanner, setStripeBanner] = useState("");
   const [checkoutOverlay, setCheckoutOverlay] = useState(null); // null | { status: "loading"|"error", message?: string }
   const [savedOrders, setSavedOrders] = useState([]);
@@ -1246,6 +1250,28 @@ export default function App() {
     }, 2500);
   }
 
+  function showAppSuccessToast(
+    message = "✅ Order submitted! We'll send you an invoice to pay shortly. Questions? Call 502-640-2394"
+  ) {
+    if (appSuccessToastTimerRef.current) clearTimeout(appSuccessToastTimerRef.current);
+    setAppSuccessToast(message);
+    console.info("[ECOS toast] show", message.slice(0, 48));
+    appSuccessToastTimerRef.current = setTimeout(() => {
+      setAppSuccessToast("");
+      appSuccessToastTimerRef.current = null;
+    }, 8000);
+  }
+
+  useEffect(() => {
+    userProfileRef.current = userProfile;
+  }, [userProfile]);
+
+  useEffect(() => {
+    return () => {
+      if (appSuccessToastTimerRef.current) clearTimeout(appSuccessToastTimerRef.current);
+    };
+  }, []);
+
   function goNewJobQuote() {
     setHeaderMenuOpen(false);
     reset();
@@ -1330,7 +1356,7 @@ export default function App() {
   async function ensureProfileForSession(activeSession, extraProfile = {}) {
     if (!activeSession?.user?.id) return null;
     const email = activeSession.user.email?.toLowerCase() || "";
-    const existing = normalizeUserProfile(userProfile || {});
+    const existing = normalizeUserProfile(userProfileRef.current || {});
     const seed = {
       id: activeSession.user.id,
       email,
@@ -1807,71 +1833,123 @@ export default function App() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: bootstrap once per profileVersion
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
+    let hydrateSeq = 0;
+
+    function clearLoggedOutState() {
+      setUserProfile(null);
+      setAllProfilesByEmail({});
+      setCurrentPlan("Free");
+      setContractorPricingTierKey("msrp");
+      setAssignedPricingTierKey("msrp");
+      setPoHistory([]);
+      setMaterialOrderHistory([]);
+      setPoCountThisYear(0);
+    }
+
+    async function hydrateFromSession(activeSession, source) {
+      const seq = ++hydrateSeq;
+      console.info("[ECOS auth] hydrate start", {
+        source,
+        userId: activeSession?.user?.id || null,
+        seq,
+      });
+      if (!activeSession?.user?.id) {
+        if (!cancelled) clearLoggedOutState();
+        return null;
+      }
+      try {
+        const p = await ensureProfileForSession(activeSession);
+        if (cancelled || seq !== hydrateSeq) {
+          console.info("[ECOS auth] hydrate stale — skip apply", { source, seq, hydrateSeq });
+          return p;
+        }
+        setCurrentPlan(membershipTierToPlanTag(p?.membership_tier || "free"));
+        setContractorPricingTierKey(getEffectiveContractorPricingTierKey(p || {}));
+        setAssignedPricingTierKey(normalizeUserProfile(p || {}).assignedPricingTierKey || "msrp");
+        await loadPoHistory(activeSession, p);
+        await loadMaterialOrderHistory(activeSession);
+        await loadAdminProfiles(activeSession);
+        console.info("[ECOS auth] hydrate done", {
+          source,
+          membership: p?.membership_tier,
+          company: p?.company_name,
+        });
+        return p;
+      } catch (err) {
+        if (!cancelled) {
+          setAuthError(err?.message || "Unable to load your account profile.");
+          console.error("[ECOS auth] hydrate failed", source, err);
+        }
+        return null;
+      }
+    }
+
     async function bootstrapAuth() {
       setIsAuthLoading(true);
       try {
         const { data } = await supabase.auth.getSession();
-        if (!mounted) return;
+        if (cancelled) return;
         const activeSession = data.session || null;
         setSession(activeSession);
         setCurrentUser(activeSession?.user?.email?.toLowerCase() || null);
         if (activeSession) {
-          try {
-            const p = await ensureProfileForSession(activeSession);
-            setCurrentPlan(membershipTierToPlanTag(p?.membership_tier || "free"));
-            setContractorPricingTierKey(getEffectiveContractorPricingTierKey(p || {}));
-            setAssignedPricingTierKey(normalizeUserProfile(p || {}).assignedPricingTierKey || "msrp");
-            await loadPoHistory(activeSession, p);
-            await loadMaterialOrderHistory(activeSession);
-            await loadAdminProfiles(activeSession);
-          } catch (err) {
-            setAuthError(err?.message || "Unable to load your account profile.");
-          }
+          await hydrateFromSession(activeSession, "bootstrap");
         } else {
-          setUserProfile(null);
-          setAllProfilesByEmail({});
-          setCurrentPlan("Free");
-          setContractorPricingTierKey("msrp");
-          setAssignedPricingTierKey("msrp");
-          setPoHistory([]);
-          setMaterialOrderHistory([]);
-          setPoCountThisYear(0);
+          clearLoggedOutState();
         }
       } finally {
-        if (mounted) setIsAuthLoading(false);
+        if (!cancelled) setIsAuthLoading(false);
       }
     }
+
     bootstrapAuth();
-    const { data: authSubscription } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
-      setIsAuthLoading(false);
+
+    /**
+     * IMPORTANT: never `await` inside onAuthStateChange.
+     * Async work there deadlocks Supabase auth (getSession / storage.list stall),
+     * which matches intermittent empty swatches + sticky session weirdness fixed by logout reload.
+     */
+    const { data: authSubscription } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      console.info("[ECOS auth] onAuthStateChange", {
+        event,
+        userId: nextSession?.user?.id || null,
+      });
       setSession(nextSession || null);
       const nextEmail = nextSession?.user?.email?.toLowerCase() || null;
       setCurrentUser(nextEmail);
+
       if (!nextSession) {
-        setUserProfile(null);
-        setCurrentPlan("Free");
-        setContractorPricingTierKey("msrp");
-        setAssignedPricingTierKey("msrp");
-        setPoHistory([]);
-        setMaterialOrderHistory([]);
-        setPoCountThisYear(0);
+        clearLoggedOutState();
+        setIsAuthLoading(false);
         return;
       }
-      try {
-        const p = await ensureProfileForSession(nextSession);
-        setCurrentPlan(membershipTierToPlanTag(p?.membership_tier || "free"));
-        setContractorPricingTierKey(getEffectiveContractorPricingTierKey(p || {}));
-        setAssignedPricingTierKey(normalizeUserProfile(p || {}).assignedPricingTierKey || "msrp");
-        await loadPoHistory(nextSession, p);
-        await loadMaterialOrderHistory(nextSession);
-        await loadAdminProfiles(nextSession);
-      } catch (err) {
-        setAuthError(err?.message || "Unable to refresh your session.");
+
+      // Token refresh: keep session in state only — do not re-upsert profile / reload history.
+      if (event === "TOKEN_REFRESHED") {
+        return;
       }
+
+      setTimeout(() => {
+        if (cancelled) return;
+        void (async () => {
+          // Skip duplicate INITIAL_SESSION hydrate when bootstrap already covered it.
+          if (event === "INITIAL_SESSION" && userProfileRef.current?.id === nextSession.user.id) {
+            console.info("[ECOS auth] skip duplicate INITIAL_SESSION hydrate");
+            setIsAuthLoading(false);
+            return;
+          }
+          try {
+            await hydrateFromSession(nextSession, event || "auth-change");
+          } finally {
+            if (!cancelled) setIsAuthLoading(false);
+          }
+        })();
+      }, 0);
     });
+
     return () => {
-      mounted = false;
+      cancelled = true;
       authSubscription?.subscription?.unsubscribe?.();
     };
   }, [profileVersion]);
@@ -1950,8 +2028,14 @@ export default function App() {
     }
   }, [session?.user?.id]);
 
+  // Load color swatches after auth settles (storage.list can stall if called during auth deadlock).
+  // Retry when empty so a first-login race doesn't leave the picker blank until logout reload.
   useEffect(() => {
-    let mounted = true;
+    if (isAuthLoading) {
+      console.info("[ECOS swatches] waiting for auth before load");
+      return;
+    }
+    let cancelled = false;
     const flakeKeys = new Set(STOCKED_COLORS.map((c) => makeSwatchKey(c.value)));
     const metallicKeys = new Set(METALLIC_COLOR_OPTIONS.map((c) => makeSwatchKey(c)));
     const solidKeys = new Set(SOLID_COLOR_OPTIONS.map((c) => makeSwatchKey(c)));
@@ -1984,31 +2068,26 @@ export default function App() {
       const all = [];
       let offset = 0;
       const limit = 1000;
-      while (mounted) {
+      while (!cancelled) {
         const { data, error } = await supabase.storage.from(SUPABASE_SWATCH_BUCKET).list(path, {
           limit,
           offset,
           sortBy: { column: "name", order: "asc" },
         });
         if (error) {
-          if (mounted) console.warn("[ECOS swatches] list failed:", path || "/", error.message);
-          return [];
+          if (!cancelled) console.warn("[ECOS swatches] list failed:", path || "/", error.message);
+          return { entries: [], error: error.message };
         }
         const chunk = data || [];
         all.push(...chunk);
         if (chunk.length < limit) break;
         offset += limit;
       }
-      return all;
+      return { entries: all, error: null };
     }
-    /** Folder vs file: Supabase list items often omit `id` on files — do not rely on it. */
     function hasFilenameExtension(name = "") {
       return /\.[a-z0-9]{2,8}$/i.test(name);
     }
-    /**
-     * Detect flake/metallic/solid from the real Storage path (folder names).
-     * Important: makeSwatchKey() strips words like "flake" and "solid", so never rely on pathKey alone for folders like "Flake Swatches/".
-     */
     function familyFromRelativePath(relPath = "") {
       const p = relPath.toLowerCase();
       if (p.includes("metallic")) return "metallic";
@@ -2026,7 +2105,6 @@ export default function App() {
       if (solidKeys.has(fileKey)) return "solid";
       return null;
     }
-    /** When folder names omit flake/solid/metallic, infer family from which catalog key matches the filename. */
     function inferFamilyFromCatalogKeys(filename) {
       const mf = resolveCatalogKeyFromFilename(filename, flakeKeys);
       const mm = resolveCatalogKeyFromFilename(filename, metallicKeys);
@@ -2039,21 +2117,23 @@ export default function App() {
       if (hits.length === 1) return { family: hits[0][0], mappedKey: hits[0][1] };
       return null;
     }
-    async function loadAllSwatches() {
+    async function loadAllSwatches(attempt) {
       const flakeNext = {};
       const metallicNext = {};
       const solidNext = {};
       const queue = [""];
       const visited = new Set();
       let depth = 0;
+      let listErrors = 0;
 
-      while (queue.length && depth < 8) {
+      while (queue.length && depth < 8 && !cancelled) {
         const currentBatch = [...queue];
         queue.length = 0;
         for (const folder of currentBatch) {
           if (visited.has(folder)) continue;
           visited.add(folder);
-          const entries = await listFolder(folder);
+          const { entries, error } = await listFolder(folder);
+          if (error) listErrors += 1;
           for (const entry of entries) {
             if (!entry?.name) continue;
             const path = folder ? `${folder}/${entry.name}` : entry.name;
@@ -2112,29 +2192,44 @@ export default function App() {
         }
         depth += 1;
       }
-      if (!mounted) return;
-      if (import.meta.env.DEV) {
-        const countHits = (map, set) => [...set].filter((k) => map[k]).length;
-        console.info("[ECOS swatches] mapped", {
-          flakeColors: countHits(flakeNext, flakeKeys),
-          metallicColors: countHits(metallicNext, metallicKeys),
-          solidColors: countHits(solidNext, solidKeys),
-          urls: {
-            flake: Object.keys(flakeNext).length,
-            metallic: Object.keys(metallicNext).length,
-            solid: Object.keys(solidNext).length,
-          },
-        });
-      }
+      if (cancelled) return null;
+      const countHits = (map, set) => [...set].filter((k) => map[k]).length;
+      const summary = {
+        attempt,
+        listErrors,
+        hasSession: !!session?.user?.id,
+        flakeColors: countHits(flakeNext, flakeKeys),
+        metallicColors: countHits(metallicNext, metallicKeys),
+        solidColors: countHits(solidNext, solidKeys),
+        urls: {
+          flake: Object.keys(flakeNext).length,
+          metallic: Object.keys(metallicNext).length,
+          solid: Object.keys(solidNext).length,
+        },
+      };
+      console.info("[ECOS swatches] mapped", summary);
       setFlakeSwatchUrls(flakeNext);
       setMetallicSwatchUrls(metallicNext);
       setSolidSwatchUrls(solidNext);
+      return summary;
     }
-    loadAllSwatches();
+
+    (async () => {
+      for (let attempt = 1; attempt <= 3 && !cancelled; attempt += 1) {
+        const summary = await loadAllSwatches(attempt);
+        if (!summary) return;
+        const totalUrls = summary.urls.flake + summary.urls.metallic + summary.urls.solid;
+        if (totalUrls > 0 && summary.listErrors === 0) return;
+        console.warn("[ECOS swatches] empty or errored — retrying", summary);
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      }
+    })();
+
     return () => {
-      mounted = false;
+      cancelled = true;
     };
-  }, []);
+    // session?.user?.id: re-run after login so authenticated storage policies apply
+  }, [isAuthLoading, session?.user?.id]);
 
   useEffect(() => {
     const state = { ecosApp: true, phase };
@@ -2247,6 +2342,12 @@ export default function App() {
       );
       if (!ok) return;
     }
+    console.info("[ECOS submit] start", {
+      hasSession: !!session?.user?.id,
+      hasProfile: !!userProfile?.id,
+      membershipTier,
+      jobs: orderJobs.length + 1,
+    });
     const jobsForPo = [...orderJobs, currentJobSnapshot].filter(Boolean).map((j) => ({
       jobNamePo: j.jobNamePo || contractorName || "Untitled Job / PO",
       address: j.address || jobName || "—",
@@ -2291,64 +2392,77 @@ export default function App() {
     });
     setOrderSubmitMessage("Sending PO to FGP Midwest...");
     try {
-      const sendRes = await fetch("/api/send-po", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, body }),
-      });
-      if (!sendRes.ok) {
-        const sendErr = await sendRes.json().catch(() => ({}));
-        throw new Error(sendErr?.error || "PO email send failed.");
-      }
-      setOrderSubmitMessage("PO sent to orders@fgpmidwest.com.");
-    } catch (sendErr) {
-      setOrderSubmitMessage("Could not send PO automatically. Opening email app fallback.");
-      openFgOrderEmail(body, subject);
-      console.error(sendErr);
-    }
-    if (session?.user?.id) {
-      const jobs = jobsForPo;
-      const orderRecord = {
-        user_id: session.user.id,
-        created_at: new Date().toISOString(),
-        job_name: jobs.map((j) => j.jobNamePo).join(" + ") || "Untitled Job / PO",
-        address: jobs.map((j) => j.address).filter(Boolean).join(" | ") || "—",
-        system_code: recommendedSystem.code,
-        total_cost: combinedTotals.totalTier,
-        sq_footage: combinedTotals.totalSqFt,
-        cost_per_sqft:
-          combinedTotals.totalSqFt > 0
-            ? +(combinedTotals.requiredMaterialTierTotal / combinedTotals.totalSqFt).toFixed(2)
-            : 0,
-        order_lines: combinedOrderLines,
-        jobs,
-      };
-      const { data: inserted, error } = await supabase.from("orders").insert(orderRecord).select().single();
-      if (error) {
-        window.alert(error.message || "Unable to save order to cloud history.");
-      } else {
-        const nextHistory = [inserted, ...poHistory];
-        setPoHistory(nextHistory);
-        const start = getAnniversaryWindowStart(userProfile?.signup_anniversary_date).toISOString();
-        const countInWindow = nextHistory.filter((o) => (o.created_at || "") >= start).length;
-        setPoCountThisYear(countInWindow);
-        const now = new Date();
-        const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
-        const quarterStart = new Date(now.getFullYear(), quarterStartMonth, 1).toISOString();
-        const totalQuarter = nextHistory
-          .filter((o) => (o.created_at || "") >= quarterStart)
-          .reduce((sum, o) => sum + Number(o.total_cost || o.totalTier || 0), 0);
-        const totalYear = nextHistory
-          .filter((o) => (o.created_at || "") >= start)
-          .reduce((sum, o) => sum + Number(o.total_cost || o.totalTier || 0), 0);
-        updateProfileFields({
-          pos_submitted_this_year: countInWindow,
-          total_pos_value_this_quarter: totalQuarter,
-          total_pos_value_this_year: totalYear,
+      try {
+        const sendRes = await fetch("/api/send-po", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject, body }),
         });
+        if (!sendRes.ok) {
+          const sendErr = await sendRes.json().catch(() => ({}));
+          throw new Error(sendErr?.error || "PO email send failed.");
+        }
+        setOrderSubmitMessage("PO sent to orders@fgpmidwest.com.");
+      } catch (sendErr) {
+        setOrderSubmitMessage("Could not send PO automatically. Opening email app fallback.");
+        openFgOrderEmail(body, subject);
+        console.error("[ECOS submit] email error", sendErr);
       }
+      if (session?.user?.id) {
+        const jobs = jobsForPo;
+        const orderRecord = {
+          user_id: session.user.id,
+          created_at: new Date().toISOString(),
+          job_name: jobs.map((j) => j.jobNamePo).join(" + ") || "Untitled Job / PO",
+          address: jobs.map((j) => j.address).filter(Boolean).join(" | ") || "—",
+          system_code: recommendedSystem.code,
+          total_cost: combinedTotals.totalTier,
+          sq_footage: combinedTotals.totalSqFt,
+          cost_per_sqft:
+            combinedTotals.totalSqFt > 0
+              ? +(combinedTotals.requiredMaterialTierTotal / combinedTotals.totalSqFt).toFixed(2)
+              : 0,
+          order_lines: combinedOrderLines,
+          jobs,
+        };
+        const { data: inserted, error } = await supabase.from("orders").insert(orderRecord).select().single();
+        if (error) {
+          console.error("[ECOS submit] orders insert failed", error);
+          window.alert(error.message || "Unable to save order to cloud history.");
+        } else {
+          const nextHistory = [inserted, ...poHistory];
+          setPoHistory(nextHistory);
+          const start = getAnniversaryWindowStart(userProfile?.signup_anniversary_date).toISOString();
+          const countInWindow = nextHistory.filter((o) => (o.created_at || "") >= start).length;
+          setPoCountThisYear(countInWindow);
+          const now = new Date();
+          const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+          const quarterStart = new Date(now.getFullYear(), quarterStartMonth, 1).toISOString();
+          const totalQuarter = nextHistory
+            .filter((o) => (o.created_at || "") >= quarterStart)
+            .reduce((sum, o) => sum + Number(o.total_cost || o.totalTier || 0), 0);
+          const totalYear = nextHistory
+            .filter((o) => (o.created_at || "") >= start)
+            .reduce((sum, o) => sum + Number(o.total_cost || o.totalTier || 0), 0);
+          try {
+            await updateProfileFields({
+              pos_submitted_this_year: countInWindow,
+              total_pos_value_this_quarter: totalQuarter,
+              total_pos_value_this_year: totalYear,
+            });
+          } catch (profileErr) {
+            console.error("[ECOS submit] profile counters update failed", profileErr);
+          }
+        }
+      } else {
+        console.warn("[ECOS submit] no session user — skipped orders insert");
+      }
+    } finally {
+      // Always show confirmation even if history/profile updates fail after Gary was emailed.
+      showAppSuccessToast();
+      setPhase("submitted");
+      console.info("[ECOS submit] done → submitted phase");
     }
-    setPhase("submitted");
   }
 
   async function handleForgotPassword() {
@@ -2678,6 +2792,32 @@ export default function App() {
           }}
         >
           {settingsToast}
+        </div>
+      )}
+      {appSuccessToast && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            top: settingsToast ? 70 : 18,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10050,
+            maxWidth: "min(520px, calc(100vw - 24px))",
+            background: "#166534",
+            color: "#ffffff",
+            padding: "14px 18px",
+            borderRadius: 8,
+            fontFamily: "'Montserrat', sans-serif",
+            fontWeight: 800,
+            fontSize: 13,
+            lineHeight: 1.4,
+            textAlign: "center",
+            boxShadow: "0 10px 28px rgba(0,0,0,0.45)",
+            border: "1px solid #86efac",
+          }}
+        >
+          {appSuccessToast}
         </div>
       )}
 
@@ -4542,10 +4682,11 @@ export default function App() {
             ) : (
               <>
                 <MaterialOrderForm
-                  key={`material-order-${profileVersion}-${session?.user?.id || "anon"}`}
+                  key={`material-order-${session?.user?.id || "anon"}`}
                   styles={S}
                   userProfile={userProfile}
                   session={session}
+                  onSubmitSuccess={showAppSuccessToast}
                   onOrderSaved={async (row) => {
                     setMaterialOrderHistory((prev) => [row, ...prev]);
                     if (session?.user?.id) await loadMaterialOrderHistory(session);

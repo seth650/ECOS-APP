@@ -16,7 +16,7 @@ import {
 
 const usd = (n) => `$${Number(n || 0).toFixed(2)}`;
 
-export default function MaterialOrderForm({ styles: S, userProfile, session, onOrderSaved }) {
+export default function MaterialOrderForm({ styles: S, userProfile, session, onOrderSaved, onSubmitSuccess }) {
   const tierKey = useMemo(() => getMaterialOrderPricingTierKey(userProfile || {}), [userProfile]);
   const tierLabel = getMaterialOrderTierLabel(tierKey);
 
@@ -50,6 +50,10 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
     if (successToastTimerRef.current) clearTimeout(successToastTimerRef.current);
     setSuccessToast(text);
     setMessage(text);
+    // Prefer app-level toast so auth remounts / key changes cannot wipe confirmation.
+    if (typeof onSubmitSuccess === "function") {
+      onSubmitSuccess(text);
+    }
     successToastTimerRef.current = setTimeout(() => {
       setSuccessToast("");
       successToastTimerRef.current = null;
@@ -197,23 +201,42 @@ export default function MaterialOrderForm({ styles: S, userProfile, session, onO
       });
 
       if (!emailRes.ok) {
+        // 502 can mean "saved but email failed" — still surface confirmation if a row came back.
+        if (emailBody?.order?.id) {
+          setLines([]);
+          showSuccessToast();
+          try {
+            onOrderSaved?.(emailBody.order);
+          } catch (cbErr) {
+            console.error("[material-order] onOrderSaved callback error", cbErr);
+          }
+        }
         throw new Error(emailBody?.error || "Could not submit material order.");
       }
 
       const saved = emailBody?.order;
       if (!saved?.id) {
-        throw new Error("Server did not return a saved material_orders row.");
+        console.warn("[material-order] ok response missing order.id — still confirming to user", emailBody);
+        showSuccessToast();
+        setLines([]);
+        return;
       }
 
-      setLines([]);
+      // Toast first so parent remount / history reload cannot swallow confirmation.
       if (emailBody.duplicate) {
         setMessage("Material order already submitted (duplicate click blocked).");
-      } else if (emailBody.emailed === false) {
-        setMessage("Material order saved, but email to Gary may not have sent. Check with FGP.");
       } else {
         showSuccessToast();
+        if (emailBody.emailed === false) {
+          setMessage("Material order saved, but email to Gary may not have sent. Check with FGP.");
+        }
       }
-      onOrderSaved?.(saved);
+      setLines([]);
+      try {
+        onOrderSaved?.(saved);
+      } catch (cbErr) {
+        console.error("[material-order] onOrderSaved callback error", cbErr);
+      }
     } catch (e) {
       console.error("[material-order] submitOrder FAILED", e);
       const aborted = e?.name === "AbortError";
