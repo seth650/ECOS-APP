@@ -60,7 +60,7 @@ export default async function handler(req, res) {
       custom_text: {
         submit: {
           message:
-            "ECOS Tier 1 — The Calculator unlocks all 9 ET flooring systems, unlimited FGP POs, order history, and Job Card printing.",
+            "ECOS Tier 1 — The Calculator unlocks all 8 ET flooring systems, unlimited FGP POs, order history, and Job Card printing.",
         },
       },
       subscription_data: {

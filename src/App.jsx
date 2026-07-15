@@ -35,7 +35,6 @@ function systemCutawayUrl(fileName) {
 const SYSTEM_CUTAWAY_FILES = {
   "FLK-ID-RES": "FLK-ID-RES.png",
   "FLK-OD-RES": "FLK-OD-RES.png",
-  "FLK-PR-EPO": "FLK-PR-EPO.png",
 };
 
 function resolveSystemCutawayImage(systemKey, systemCode) {
@@ -205,6 +204,51 @@ function getEffectiveContractorPricingTierKey(profile) {
   return p.assignedPricingTierKey || "msrp";
 }
 
+// ─── SYSTEM LAYER HELPERS (add-ons) ─────────────────────────────────────────
+/** Crack repair add-on — HyperCURE when indoor odors/vapors are a concern. */
+function pushCrackRepairAddOn(items, sf, opts, odorSensitive = false) {
+  if (!opts.hasCracks) return;
+  if (odorSensitive && opts.odorConcern) {
+    items.push({
+      key: "hypercure",
+      gals: 0,
+      label: "Crack Repair — HyperCURE",
+      qty: sf / 2000,
+      unit: "kit",
+      notes:
+        "Low-odor 100% solids epoxy (fumed silica thickened) · est. ~0.5 kit per 1,000 ft² (whole 0.5 gal kits only — rounds up)",
+    });
+    return;
+  }
+  items.push({
+    key: "patch_pro_10x",
+    gals: 0,
+    label: "Crack Repair",
+    qty: sf / 2000,
+    unit: "kit",
+    notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)",
+  });
+}
+
+/** MVB add-on when moisture is moderate (HyperPrime) or high (MV2112). */
+function pushMoistureMvbAddOn(items, sf, opts, sqFtPerGal = 95) {
+  if (opts.moisture === "high") {
+    items.push({
+      key: "mv2112",
+      gals: sf / sqFtPerGal,
+      label: "MVB add-on — MV2112",
+      notes: `${sqFtPerGal} ft²/gal · full MVB when moisture risk is high`,
+    });
+  } else if (opts.moisture === "moderate") {
+    items.push({
+      key: "hyperprime_mvb",
+      gals: sf / sqFtPerGal,
+      label: "MVB add-on — HyperPrime MVB",
+      notes: `${sqFtPerGal} ft²/gal · may be pigmented; need not be applied neat`,
+    });
+  }
+}
+
 // ─── SYSTEM DEFINITIONS ──────────────────────────────────────────────────────
 const SYSTEMS = {
   "FLK-OD-RES": {
@@ -252,10 +296,10 @@ const SYSTEMS = {
     label: "Flake, Indoor Residential",
     code: "FLK-ID-RES",
     priceRange: "$6–8/ft²",
-    warnings: ["Non-UV stable — not for UV exposure areas", "If moisture confirmed → upgrade to FLK-ID-COM/MV"],
+    warnings: ["Non-UV stable — not for UV exposure areas", "High moisture on commercial jobs → MVB add-on on FLK-ID-COM"],
     layers: (sf, opts) => {
       const items = [];
-      if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
+      pushCrackRepairAddOn(items, sf, opts);
       if (opts.moisture === "high") {
         items.push({ key: "hyperprime_mvb", gals: sf / 95, label: "MVB — HyperPrime MVB", notes: "95 ft²/gal · moisture required" });
       }
@@ -270,32 +314,21 @@ const SYSTEMS = {
     label: "Flake, Indoor Commercial",
     code: "FLK-ID-COM",
     priceRange: "$8–12/ft²",
-    warnings: ["Non-UV stable", "Traffic topcoat (EZ Top 85) included — higher wear protection"],
+    warnings: ["Non-UV stable", "Traffic topcoat (E-Z Top 85) included — higher wear protection", "Moderate/high moisture → MVB add-on"],
     layers: (sf, opts) => {
       const items = [];
-      if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
+      pushCrackRepairAddOn(items, sf, opts);
+      pushMoistureMvbAddOn(items, sf, opts, 95);
       items.push({ key: "dt454_turbo", gals: sf / 170, label: "Basecoat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1" });
       items.push({ key: "epoly_pigment", gals: (sf / 170) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
       items.push({ key: "flake_14", lbs: sf / 10, label: "Decorative Flake 1/4\"", notes: "10–13 ft²/lb" });
       items.push({ key: "dt454_clear", gals: sf / 110, label: "Grout Coat — DT-454 Clear", notes: "110–140 ft²/gal · 2:1" });
-      items.push({ key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY, gals: sf / 600, label: "Traffic Topcoat — Aspartic 85 Slow Go (Low Odor)", notes: "600 ft²/gal min · 1.5 lb/gal COM wear" });
-      return items;
-    }
-  },
-  "FLK-ID-COM/MV": {
-    label: "Flake, Indoor Commercial + MVB",
-    code: "FLK-ID-COM/MV",
-    priceRange: "$10–14/ft²",
-    warnings: ["🚨 MVB required — moisture confirmed or high risk", "\"We're building this system from the ground up correctly\""],
-    layers: (sf, opts) => {
-      const items = [];
-      if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
-      items.push({ key: "mv2112", gals: sf / 95, label: "MVB — MV2112", notes: "95 ft²/gal · 2:1 · 3/16\" notch squeegee" });
-      items.push({ key: "dt454_turbo", gals: sf / 170, label: "Basecoat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1" });
-      items.push({ key: "epoly_pigment", gals: (sf / 170) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
-      items.push({ key: "flake_14", lbs: sf / 10, label: "Decorative Flake 1/4\"", notes: "10–13 ft²/lb" });
-      items.push({ key: "dt454_clear", gals: sf / 110, label: "Grout Coat — DT-454 Clear", notes: "110–140 ft²/gal" });
-      items.push({ key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY, gals: sf / 600, label: "Traffic Topcoat — Aspartic 85 Slow Go (Low Odor)", notes: "600 ft²/gal min · RES: 0.75 lb/gal · COM: 1.5 lb/gal" });
+      items.push({
+        key: "ez_top_85",
+        gals: sf / 600,
+        label: "Traffic Topcoat — E-Z Top 85",
+        notes: "600 ft²/gal min · 1.5 lb/gal COM wear",
+      });
       return items;
     }
   },
@@ -306,7 +339,7 @@ const SYSTEMS = {
     warnings: ["Artistic system — consult Metallic Recipe Book for pigment", "🚨 Moisture: critical — MVB required if ANY risk present", "\"This is art, not a work floor\""],
     layers: (sf, opts) => {
       const items = [];
-      if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
+      pushCrackRepairAddOn(items, sf, opts, true);
       if (opts.moisture === "high" || opts.moisture === "moderate") {
         items.push({ key: "mv2112", gals: sf / 95, label: "MVB — MV2112", notes: "95 ft²/gal · 2:1" });
       } else {
@@ -321,14 +354,14 @@ const SYSTEMS = {
       }
       items.push({ key: "dt454_turbo", gals: sf / 170, label: "Basecoat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1" });
       items.push({ key: "epoly_pigment", gals: (sf / 170) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
-      const hyperflowGals = sf / 40;
-      items.push({ key: "hyperflow", gals: hyperflowGals, label: "Artistic Layer — HyperFLOW", notes: "40 ft²/gal planning rate · 2:1" });
+      const marbleMaxGals = sf / 40;
+      items.push({ key: "marblemax", gals: marbleMaxGals, label: "Artistic Layer — MarbleMax", notes: "40 ft²/gal planning rate · 2:1" });
       items.push({
         key: "metallic_mica_4oz",
         gals: 0,
-        qty: hyperflowGals * (4 / 3),
+        qty: marbleMaxGals * (4 / 3),
         label: "Metallic Pigment (Mica) — 4oz jars",
-        notes: "16 oz mica per 3 gal HyperFLOW (4 jars per 3 gal)",
+        notes: "16 oz mica per 3 gal MarbleMax (4 jars per 3 gal)",
       });
       const topcoatGals = sf / 600;
       items.push({ key: "ez_top_85", gals: topcoatGals, label: "Topcoat — EZ Top 85 (MCU 85 mfg)", notes: "600 ft²/gal min" });
@@ -362,36 +395,20 @@ const SYSTEMS = {
     label: "Solid Colored, Indoor",
     code: "SC-ID-EZ CLEAN",
     priceRange: "$5–8/ft²",
-    warnings: ["Non-UV stable", "Not for known moisture, below-grade, or pre-2000 slabs → use MV version"],
+    warnings: ["Non-UV stable", "Moderate/high moisture → MVB add-on replaces bond primer"],
     layers: (sf, opts) => {
       const items = [];
-      if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
-      items.push({
-        key: "hydroprime_40",
-        gals: sf / 300,
-        label: "Primer / Bond Coat — HydroPrime 40",
-        notes: "250–350 ft²/gal · squeegee/roll · tint EpoTint-WB (1 pt / 2 gal mixed)",
-      });
-      items.push({ key: "dt454_turbo", gals: sf / 155, label: "Body Coat — DT-454 Clear (Turbo)", notes: "140–170 ft²/gal · 2:1 · notch squeegee 8–12 mil WFT" });
-      items.push({ key: "epoly_pigment", gals: (sf / 155) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume (body coat)" });
-      items.push({
-        key: "ez_top_85",
-        gals: sf / 600,
-        label: "Topcoat — EZ Top 85 (Low Odor) — MCU 85 (manufacturer)",
-        notes: "600 ft²/gal min · single component · add silica wear per RES/COM spec",
-      });
-      return items;
-    }
-  },
-  "SC-ID-EZ-CLEAN-MV": {
-    label: "Solid Colored, Indoor + MVB",
-    code: "SC-ID-EZ CLEAN-MV",
-    priceRange: "$7–10/ft²",
-    warnings: ["🚨 MVB included — moisture-prone slabs, below-grade, pre-2000"],
-    layers: (sf, opts) => {
-      const items = [];
-      if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
-      items.push({ key: "mv2112", gals: sf / 95, label: "MVB — MV2112", notes: "95 ft²/gal · 1:1 · 3/16\" notch squeegee" });
+      pushCrackRepairAddOn(items, sf, opts, true);
+      if (opts.moisture === "high" || opts.moisture === "moderate") {
+        pushMoistureMvbAddOn(items, sf, opts, 95);
+      } else {
+        items.push({
+          key: "hydroprime_40",
+          gals: sf / 300,
+          label: "Primer / Bond Coat — HydroPrime 40",
+          notes: "250–350 ft²/gal · squeegee/roll · tint EpoTint-WB (1 pt / 2 gal mixed)",
+        });
+      }
       items.push({ key: "dt454_turbo", gals: sf / 155, label: "Body Coat — DT-454 Clear (Turbo)", notes: "140–170 ft²/gal · 2:1 · notch squeegee 8–12 mil WFT" });
       items.push({ key: "epoly_pigment", gals: (sf / 155) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume (body coat)" });
       items.push({
@@ -410,7 +427,7 @@ const SYSTEMS = {
     warnings: ["Grip + durability over appearance", "Sand broadcast to refusal — 50 lbs per 100 ft²"],
     layers: (sf, opts) => {
       const items = [];
-      if (opts.hasCracks) items.push({ key: "patch_pro_10x", gals: 0, label: "Crack Repair", qty: sf / 2000, unit: "kit", notes: "Est. ~0.5 kit per 1,000 ft² (PO: whole 2 gal kits only — rounds up)" });
+      pushCrackRepairAddOn(items, sf, opts, true);
       items.push({ key: "dt454_turbo", gals: sf / 160, label: "Base Coat — DT-454 Clear (Turbo)", notes: "160 ft²/gal · 2:1" });
       items.push({ key: "epoly_pigment", gals: (sf / 160) * 0.10, label: "E-Poly Pigment", notes: "+10% total mix volume" });
       items.push({ key: "dt454_turbo", gals: sf / 170, label: "Broadcast Coat — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1" });
@@ -429,7 +446,19 @@ const SYSTEMS = {
     layers: (sf, _opts) => {
       const items = [];
       items.push({ key: "dt454_turbo", gals: sf / 170, label: "Prime/Base — DT-454 Clear (Turbo)", notes: "170 ft²/gal · 2:1 · squeegee/roll" });
-      items.push({ key: DEFAULT_POLYASPARTIC_TOPCOAT_KEY, gals: sf / 600, label: "Topcoat — Aspartic 85 Slow Go (Low Odor)", notes: "600 ft²/gal min · 0.75 lb/gal RES" });
+      const topcoatGals = sf / 600;
+      items.push({
+        key: "ez_top_85",
+        gals: topcoatGals,
+        label: "Topcoat — E-Z Top 85",
+        notes: "600 ft²/gal min · includes WearMax additive per ET standard",
+      });
+      items.push({
+        key: "wearmax_3lb",
+        lbs: topcoatGals * 3,
+        label: "WearMax Additive",
+        notes: "3 lb/gal E-Z Top 85 · wear resistance AO",
+      });
       return items;
     }
   },
@@ -528,11 +557,9 @@ function getFullLocationSystemKeys(location) {
     return [
       "FLK-ID-RES",
       "FLK-ID-COM",
-      "FLK-ID-COM/MV",
       "METALLIC-ID",
       "QUARTZ-ID-COM",
       "SC-ID-EZ-CLEAN",
-      "SC-ID-EZ-CLEAN-MV",
       "SC-ID-TEX",
       "GRIND-SEAL",
     ];
@@ -549,11 +576,10 @@ function getRecommendedSystem(answers, _planTag = "Free") {
   }
 
   if (finish === "flake") {
-    if (moisture === "high") return "FLK-ID-COM/MV";
     if (use === "commercial") return "FLK-ID-COM";
     return "FLK-ID-RES";
   }
-  if (finish === "solid") return moisture === "high" ? "SC-ID-EZ-CLEAN-MV" : "SC-ID-EZ-CLEAN";
+  if (finish === "solid") return "SC-ID-EZ-CLEAN";
   if (finish === "metallic") return "METALLIC-ID";
   if (finish === "quartz") return "QUARTZ-ID-COM";
   if (finish === "solid_tex") return "SC-ID-TEX";
@@ -662,9 +688,15 @@ function getRecommendationReason(answers, systemKey) {
     }
     return "Outdoor install prioritizes UV stability and fast cure chemistry.";
   }
-  if (answers.finish === "flake" && answers.moisture === "high") return "Moisture risk triggers MVB-backed flake build.";
-  if (answers.finish === "flake" && answers.use === "commercial") return "Commercial use needs heavier wear package.";
-  if (answers.finish === "solid" && answers.moisture === "high") return "Moisture-prone slab shifts to MV solid system.";
+  if (answers.finish === "flake" && answers.moisture === "high" && answers.use === "commercial")
+    return "Commercial flake with high moisture: MV2112 MVB add-on on FLK-ID-COM.";
+  if (answers.finish === "flake" && answers.moisture === "moderate" && answers.use === "commercial")
+    return "Commercial flake with moderate moisture: HyperPrime MVB add-on on FLK-ID-COM.";
+  if (answers.finish === "flake" && answers.use === "commercial") return "Commercial use needs heavier wear package (E-Z Top 85 traffic coat).";
+  if (answers.finish === "solid" && answers.moisture === "high")
+    return "High moisture adds MV2112 MVB to the solid-color build.";
+  if (answers.finish === "solid" && answers.moisture === "moderate")
+    return "Moderate moisture adds HyperPrime MVB to the solid-color build.";
   if (answers.finish === "metallic") return "Metallic finish prioritizes artistic flow and clarity.";
   if (answers.finish === "quartz") return "Quartz finish targets safety, broadcast texture, and durability.";
   return "Best fit based on your current location, finish, and refine answers.";
@@ -1617,7 +1649,13 @@ export default function App() {
     : null;
   const speedIsRequired = answers.location === "exterior" && activeSystemKey === "FLK-OD-RES";
   const shouldAskUseType = !isFreePlan;
-  const hasRequiredRefineAnswers = Boolean((!shouldAskUseType || answers.use) && answers.moisture && answers.cracks);
+  const shouldAskOdorConcern = ["metallic", "solid", "solid_tex"].includes(answers.finish);
+  const hasRequiredRefineAnswers = Boolean(
+    (!shouldAskUseType || answers.use) &&
+      answers.moisture &&
+      answers.cracks &&
+      (!shouldAskOdorConcern || answers.odorConcern)
+  );
   const metallicSelectedColors = Array.isArray(answers.metallicColors) ? answers.metallicColors : [];
   const hasColorSelection = activeSystemFamily === "metallic" ? metallicSelectedColors.length > 0 : Boolean(answers.color);
   const hasMetallicInputs =
@@ -1699,6 +1737,9 @@ export default function App() {
         delete next.metallicColors;
         delete next.metallicPrimerTint;
       }
+      if (qid === "finish" && !["metallic", "solid", "solid_tex"].includes(val)) {
+        delete next.odorConcern;
+      }
       if (qid === "finish" && val === "metallic") {
         if (!next.baseCoatColor) next.baseCoatColor = "Black";
         if (!next.metallicPrimerTint) next.metallicPrimerTint = "Gray";
@@ -1712,7 +1753,7 @@ export default function App() {
       }
       return next;
     });
-    if (["location", "finish", "use", "moisture", "cracks"].includes(qid)) {
+    if (["location", "finish", "use", "moisture", "cracks", "odorConcern"].includes(qid)) {
       setManualSystemKey(null);
     }
     if (qid === "location" && val !== "exterior") {
@@ -1780,6 +1821,7 @@ export default function App() {
     const opts = {
       moisture: answers.moisture || "none",
       hasCracks: answers.cracks === "yes",
+      odorConcern: answers.odorConcern === "yes",
       steps,
       speed,
       metallicPrimerTint: answers.metallicPrimerTint || "Gray",
@@ -3419,7 +3461,7 @@ export default function App() {
                     </div>
                     <div style={{ fontSize: 13, color: "#d2def1", marginBottom: 10 }}>{recommendedSystem.label}</div>
                     <div style={{ fontSize: 12, color: "#f5d676", marginBottom: 10 }}>
-                      This system requires Tier 1 — The Calculator. Upgrade to unlock all 9 ET flooring systems.
+                      This system requires Tier 1 — The Calculator. Upgrade to unlock all 8 ET flooring systems.
                     </div>
                     <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setPhase("plans")}>
                       Upgrade to unlock
@@ -3574,6 +3616,27 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+
+                  {shouldAskOdorConcern && (
+                    <>
+                      <div style={{ fontSize: 11, color: "#d2def1", marginBottom: 6, marginTop: 14 }}>
+                        Indoor odors / vapors a concern?
+                      </div>
+                      <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 6, lineHeight: 1.4 }}>
+                        If yes and cracks need repair, quote uses HyperCURE (low-odor) instead of Patch Pro 10X.
+                      </div>
+                      <div style={S.optRow}>
+                        {[
+                          { value: "no", label: "No" },
+                          { value: "yes", label: "Yes" },
+                        ].map((o) => (
+                          <button key={o.value} style={S.opt(answers.odorConcern === o.value)} onClick={() => answer("odorConcern", o.value)}>
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div style={S.sectionHead}>Other Available {answers.location === "interior" ? "Indoor" : "Outdoor"} Systems</div>
@@ -4953,7 +5016,7 @@ export default function App() {
                 <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Tier 1 ($49/mo)</div>
                 <ul style={{ margin: "8px 0 12px 16px", color: "#d2def1", fontSize: 11, lineHeight: 1.5 }}>
                   <li>Everything in Free</li>
-                  <li>Unlock all 9 ET flooring systems</li>
+                  <li>Unlock all 8 ET flooring systems</li>
                   <li>10 active jobs in cart</li>
                   <li>Submit PO to FGP Midwest - UNLIMITED</li>
                   <li>50 POs saved per year</li>

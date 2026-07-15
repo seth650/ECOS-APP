@@ -50,6 +50,13 @@ export const PRODUCTS = {
   },
   hydroprime: { name: "HydroPrime (ET)", kits: [{ size: "3 gal", gals: 3, msrp: 156 }, { size: "15 gal", gals: 15, msrp: 750 }] },
   hydroprime_40: { name: "HydroPrime 40 (Bond / primer — 1040 BondKoat PL)", kits: [{ size: "2 gal", gals: 2, msrp: 165 }, { size: "10 gal", gals: 10, msrp: 924.68 }] },
+  marblemax: {
+    name: "MarbleMax (Metallic Artistic Layer)",
+    kits: [
+      { size: "3 gal", gals: 3, msrp: 282.97, tierPrices: { small: 268.82, tier2: 254.67, preferred: 240.52 } },
+      { size: "15 gal", gals: 15, msrp: 1113.14, tierPrices: { small: 1057.48, tier2: 1001.83, preferred: 946.14 } },
+    ],
+  },
   maxx_flow: { name: "Maxx Flow (Metallic)", kits: [{ size: "3 gal", gals: 3, msrp: 360 }, { size: "15 gal", gals: 15, msrp: 1550 }] },
   hyperflow: { name: "HyperFLOW (Metallic Artistic Layer)", kits: [{ size: "3 gal", gals: 3, msrp: 360 }, { size: "15 gal", gals: 15, msrp: 1550 }] },
   hyperprime_mvb_pig: {

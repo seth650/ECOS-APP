@@ -7,7 +7,7 @@ export const MATERIAL_CATEGORY_GROUPS = {
 };
 
 export const MATERIAL_CATEGORIES = [
-  { id: "epoxy", label: "EPOXY", group: "main", productKeys: ["dt454_clear", "dt454_turbo", "hyperbond", "mv2112", "hyperprime_mvb", "hyperprime_mvb_pig", "hydroprime", "hydroprime_40", "maxx_flow", "hyperflow"] },
+  { id: "epoxy", label: "EPOXY", group: "main", productKeys: ["dt454_clear", "dt454_turbo", "hyperbond", "mv2112", "hyperprime_mvb", "hyperprime_mvb_pig", "hydroprime", "hydroprime_40", "marblemax", "maxx_flow", "hyperflow"] },
   { id: "polyaspartic", label: "POLYASPARTIC", group: "main", productKeys: ["aspartic85"] },
   { id: "polyurea", label: "POLYUREA", group: "main", productKeys: ["polyurea_slow", "polyurea_med", "polyurea_fast"] },
   { id: "urethane", label: "URETHANE", group: "main", productKeys: ["ez_top_85"] },
