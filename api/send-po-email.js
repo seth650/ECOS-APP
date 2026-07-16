@@ -198,7 +198,7 @@ async function sendGaryEmail(emailArgs) {
   }
 
   const { subject, body } = formatMaterialOrderEmail(emailArgs);
-  const from = process.env.MATERIAL_PO_EMAIL_FROM || "ECOS Orders <orders@dynastyepoxy.com>";
+  const from = process.env.MATERIAL_PO_EMAIL_FROM || "ECOS Orders <Rufus@epoxyquoting.com>";
 
   const upstream = await fetch("https://api.resend.com/emails", {
     method: "POST",
