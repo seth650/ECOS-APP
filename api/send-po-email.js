@@ -4,7 +4,7 @@ import { ensurePoYearCurrent, incrementAnnualPoCount, isTier1PoLimitReached } fr
 import { MAX_TIER1_POS_PER_YEAR } from "../src/poLimits.js";
 import { PRODUCTS } from "../src/products.js";
 import { isAncillaryCategory } from "../src/materialOrderCatalog.js";
-import { getMaterialOrderPricingTierKey, MATERIAL_PRICING_TIERS } from "../src/materialOrderPricing.js";
+import { getMaterialOrderPricingTierKey, MATERIAL_PRICING_TIERS, summarizeMaterialLines } from "../src/materialOrderPricing.js";
 
 const GARY_EMAIL = "gary@dynastyepoxy.com";
 
@@ -137,13 +137,6 @@ function recalculateOrderLines(rawItems, tierKey) {
     .filter(Boolean);
 }
 
-function summarizeLines(lines) {
-  const totalMsrp = +lines.reduce((s, l) => s + Number(l.lineMsrp || 0), 0).toFixed(2);
-  const totalPrice = +lines.reduce((s, l) => s + Number(l.lineTotal || 0), 0).toFixed(2);
-  const totalDiscount = +(totalMsrp - totalPrice).toFixed(2);
-  return { totalMsrp, totalDiscount, totalPrice };
-}
-
 function formatMaterialOrderEmail({ order, profile, tierKey, pricedLines, totals }) {
   const email = profile?.email || order?.user_email || "—";
   const company = profile?.company_name || profile?.businessName || "—";
@@ -179,9 +172,13 @@ Line items
 ${lines || "(none)"}
 
 Totals
-  Total MSRP: ${usd(totals.totalMsrp)}
-  TOTAL DISCOUNT FROM MSRP: ${usd(totals.totalDiscount)}
-  CONTRACTOR PAYS: ${usd(totals.totalPrice)}
+  Subtotal (MSRP): ${usd(totals.totalMsrp)}
+  Discount: ${usd(totals.totalDiscount)}
+  Subtotal after discount: ${usd(totals.subtotalAfterDiscount)}
+  Tax (7% IN): ${usd(totals.salesTax)}
+  TOTAL (contractor pays): ${usd(totals.totalWithTax)}
+
+Indiana sales tax already applied — square total below.
 
 Order ID: ${order?.id || "—"}
 Status: ${order?.status || "submitted"}
@@ -190,8 +187,8 @@ Status: ${order?.status || "submitted"}
 
   const poLabel = order?.po_name || order?.poName;
   const subject = poLabel
-    ? `ECOS Material PO — ${poLabel} — ${name} — ${usd(totals.totalPrice)}`
-    : `ECOS Material PO — ${name} — ${usd(totals.totalPrice)}`;
+    ? `ECOS Material PO — ${poLabel} — ${name} — ${usd(totals.totalWithTax)}`
+    : `ECOS Material PO — ${name} — ${usd(totals.totalWithTax)}`;
   return { subject, body };
 }
 
@@ -303,7 +300,7 @@ export default async function handler(req, res) {
     if (!pricedLines.length) {
       return res.status(400).json({ error: "No valid line items to price (missing productKey)." });
     }
-    const totals = summarizeLines(pricedLines);
+    const totals = summarizeMaterialLines(pricedLines);
 
     console.log("[send-po-email] PRICE CHECK", {
       tierKey,
@@ -348,7 +345,9 @@ export default async function handler(req, res) {
       items: pricedLines,
       total_msrp: totals.totalMsrp,
       total_discount: totals.totalDiscount,
-      total_price: totals.totalPrice,
+      sales_tax: totals.salesTax,
+      total_with_tax: totals.totalWithTax,
+      total_price: totals.totalWithTax,
       pricing_tier_key: tierKey,
       status: "submitted",
       request_id: requestId,
@@ -361,6 +360,8 @@ export default async function handler(req, res) {
       itemCount: pricedLines.length,
       total_price: record.total_price,
       total_discount: record.total_discount,
+      sales_tax: record.sales_tax,
+      total_with_tax: record.total_with_tax,
       customerEmail: profile.email,
       po_name: record.po_name,
     });
@@ -377,6 +378,24 @@ export default async function handler(req, res) {
           return res.status(200).json({ ok: true, order: raced, duplicate: true, emailed: false });
         }
         return res.status(500).json({ error: firstTry.error.message || "Duplicate request conflict." });
+      } else if (firstTry.error && /sales_tax|total_with_tax/i.test(firstTry.error.message || "")) {
+        const { sales_tax: _st, total_with_tax: _twt, ...withoutTaxCols } = record;
+        const retry = await admin.from("material_orders").insert(withoutTaxCols).select("*").single();
+        console.warn("[send-po-email] retried insert without sales_tax columns", { error: retry.error });
+        if (!retry.error && retry.data?.id) {
+          savedRow = {
+            ...retry.data,
+            sales_tax: totals.salesTax,
+            total_with_tax: totals.totalWithTax,
+          };
+        } else {
+          const err = retry.error || firstTry.error;
+          return res.status(500).json({
+            error: `${err.message || "Failed to save material_orders."} Re-run supabase/material_orders_sales_tax.sql.`,
+            details: err.details || null,
+            hint: err.hint || null,
+          });
+        }
       } else if (firstTry.error && /po_name/i.test(firstTry.error.message || "")) {
         const { po_name: _omit, ...withoutPoName } = record;
         const retry = await admin.from("material_orders").insert(withoutPoName).select("*").single();

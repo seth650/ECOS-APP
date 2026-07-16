@@ -175,7 +175,10 @@ export default function MaterialOrderForm({
         items,
         total_msrp: totals.totalMsrp,
         total_discount: totals.totalDiscount,
-        total_price: totals.totalPrice,
+        subtotal_after_discount: totals.subtotalAfterDiscount,
+        sales_tax: totals.salesTax,
+        total_with_tax: totals.totalWithTax,
+        total_price: totals.totalWithTax,
         pricing_tier_key: tierKey,
         status: "submitted",
       };
@@ -478,16 +481,24 @@ export default function MaterialOrderForm({
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#d2def1", marginBottom: 6 }}>
-            <span>Total MSRP</span>
+            <span>Subtotal (MSRP)</span>
             <span>{usd(totals.totalMsrp)}</span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#f5d676", marginBottom: 6 }}>
-            <span>Total discount</span>
+            <span>Discount</span>
             <span>−{usd(totals.totalDiscount)}</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#fff", fontWeight: 900, fontFamily: "'Montserrat', sans-serif" }}>
-            <span>Final PO total</span>
-            <span>{usd(totals.totalPrice)}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#d2def1", marginBottom: 6 }}>
+            <span>Subtotal after discount</span>
+            <span>{usd(totals.subtotalAfterDiscount)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#d2def1", marginBottom: 6 }}>
+            <span>Tax (7% IN)</span>
+            <span>{usd(totals.salesTax)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#fff", fontWeight: 900, fontFamily: "'Montserrat', sans-serif", marginTop: 4, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
+            <span>TOTAL</span>
+            <span>{usd(totals.totalWithTax)}</span>
           </div>
         </div>
       )}

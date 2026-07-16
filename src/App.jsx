@@ -5149,7 +5149,7 @@ export default function App() {
                     filteredMaterialOrderHistory.map((o, i) => (
                       <div key={`mat-${o.id || i}`} style={{ borderBottom: "1px solid #113a72", padding: "8px 0" }}>
                         <div style={{ fontSize: 12, color: "#fff", fontWeight: 900 }}>
-                          {o.po_name || o.poName || "Manual PO"} · ${Number(o.total_price || 0).toFixed(2)}
+                          {o.po_name || o.poName || "Manual PO"} · ${Number(o.total_with_tax ?? o.total_price ?? 0).toFixed(2)}
                         </div>
                         <div style={{ fontSize: 10, color: "#9bb2d1" }}>
                           {new Date(o.created_at).toLocaleString()} · {Array.isArray(o.items) ? o.items.length : 0} line(s) · saved ${Number(o.total_discount || 0).toFixed(2)}

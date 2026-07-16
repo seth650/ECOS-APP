@@ -1,6 +1,15 @@
 import { isAncillaryCategory } from "./materialOrderCatalog.js";
 import { PRODUCTS } from "./products.js";
 
+export const INDIANA_SALES_TAX_RATE = 0.07;
+
+export function applyIndianaSalesTax(subtotalAfterDiscount) {
+  const subtotal = +Number(subtotalAfterDiscount || 0).toFixed(2);
+  const salesTax = +(subtotal * INDIANA_SALES_TAX_RATE).toFixed(2);
+  const totalWithTax = +(subtotal + salesTax).toFixed(2);
+  return { subtotalAfterDiscount: subtotal, salesTax, totalWithTax };
+}
+
 export const MATERIAL_PRICING_TIERS = {
   small: { label: "Tier 1 — Small Buyer", mainMult: 0.95, ancillaryMult: 1.0 },
   tier2: { label: "Tier 2 — Contractor", mainMult: 0.9, ancillaryMult: 1.0 },
@@ -81,7 +90,15 @@ export function buildMaterialLine({ productKey, kitIndex, categoryId, categoryLa
 
 export function summarizeMaterialLines(lines) {
   const totalMsrp = +lines.reduce((s, l) => s + Number(l.lineMsrp || 0), 0).toFixed(2);
-  const totalPrice = +lines.reduce((s, l) => s + Number(l.lineTotal || 0), 0).toFixed(2);
-  const totalDiscount = +(totalMsrp - totalPrice).toFixed(2);
-  return { totalMsrp, totalDiscount, totalPrice };
+  const subtotalAfterDiscount = +lines.reduce((s, l) => s + Number(l.lineTotal || 0), 0).toFixed(2);
+  const totalDiscount = +(totalMsrp - subtotalAfterDiscount).toFixed(2);
+  const { salesTax, totalWithTax } = applyIndianaSalesTax(subtotalAfterDiscount);
+  return {
+    totalMsrp,
+    totalDiscount,
+    subtotalAfterDiscount,
+    totalPrice: subtotalAfterDiscount,
+    salesTax,
+    totalWithTax,
+  };
 }

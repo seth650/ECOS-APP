@@ -7,6 +7,8 @@ create table if not exists public.material_orders (
   total_msrp numeric(12, 2) not null default 0,
   total_discount numeric(12, 2) not null default 0,
   total_price numeric(12, 2) not null default 0,
+  sales_tax numeric(12, 2),
+  total_with_tax numeric(12, 2),
   pricing_tier_key text,
   status text not null default 'submitted',
   created_at timestamptz not null default now(),
