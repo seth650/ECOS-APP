@@ -35,6 +35,7 @@ export default function MaterialOrderForm({
   const [productKey, setProductKey] = useState("");
   const [kitIndex, setKitIndex] = useState(0);
   const [qty, setQty] = useState(1);
+  const [poName, setPoName] = useState("");
   const [lines, setLines] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -170,6 +171,7 @@ export default function MaterialOrderForm({
           ? crypto.randomUUID()
           : `mo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const orderPayload = {
+        po_name: poName.trim() || null,
         items,
         total_msrp: totals.totalMsrp,
         total_discount: totals.totalDiscount,
@@ -219,6 +221,7 @@ export default function MaterialOrderForm({
         // 502 can mean "saved but email failed" — still surface confirmation if a row came back.
         if (emailBody?.order?.id) {
           setLines([]);
+          setPoName("");
           showSuccessToast();
           try {
             onOrderSaved?.(emailBody.order, { annual_po_count: emailBody.annual_po_count });
@@ -247,6 +250,7 @@ export default function MaterialOrderForm({
         }
       }
       setLines([]);
+      setPoName("");
       try {
         onOrderSaved?.(saved, { annual_po_count: emailBody.annual_po_count });
       } catch (cbErr) {
@@ -300,7 +304,7 @@ export default function MaterialOrderForm({
         </div>
       )}
       <div style={{ fontSize: 13, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 6 }}>
-        Material Order Form
+        Manual PO
       </div>
       <div style={{ fontSize: 10, color: "#9bb2d1", lineHeight: 1.5, marginBottom: 12 }}>
         FGP Midwest price list · Your pricing: <span style={{ color: "#f5d676" }}>{tierLabel}</span>
@@ -309,6 +313,16 @@ export default function MaterialOrderForm({
         {" · "}
         Ancillaries: {tierKey === "preferred" ? "5% off MSRP" : "MSRP"}
       </div>
+
+      <label style={{ display: "block", fontSize: 10, color: "#9bb2d1", marginBottom: 12 }}>
+        PO Number / Name <span style={{ color: "#6b7f99", fontWeight: 400 }}>(optional)</span>
+        <input
+          style={{ ...S.input, marginTop: 4, width: "100%" }}
+          value={poName}
+          onChange={(e) => setPoName(e.target.value)}
+          placeholder="e.g. Smith Garage — PO-1042"
+        />
+      </label>
 
       <div style={{ fontSize: 9, color: "#e33433", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>
         {MATERIAL_CATEGORY_GROUPS.main}
@@ -506,7 +520,7 @@ export default function MaterialOrderForm({
           void submitOrder();
         }}
       >
-        {submitting ? "Submitting…" : poBlocked ? "PO limit reached" : "Submit material PO"}
+        {submitting ? "Submitting…" : poBlocked ? "PO limit reached" : "Submit Material PO"}
       </button>
 
       {message && (

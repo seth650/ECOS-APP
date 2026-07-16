@@ -17,6 +17,9 @@ create table if not exists public.material_orders (
 alter table public.material_orders
   add column if not exists request_id text;
 
+alter table public.material_orders
+  add column if not exists po_name text;
+
 create unique index if not exists material_orders_request_id_uidx
   on public.material_orders (request_id)
   where request_id is not null;
@@ -26,6 +29,7 @@ create index if not exists material_orders_created_at_idx on public.material_ord
 
 comment on table public.material_orders is 'ECOS standalone material POs (My Account → My Orders)';
 comment on column public.material_orders.request_id is 'Client idempotency key — prevents duplicate Gary emails on double-submit';
+comment on column public.material_orders.po_name is 'Optional contractor PO number/name';
 
 -- Optional: contractor tier on profiles for Tier 2 / Preferred material pricing
 alter table public.profiles

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { getApiBase } from "./stripeClient.js";
 import {
@@ -97,6 +97,53 @@ function membershipTierToPlanTag(tier = "free") {
   if (tier === "tier1") return "Tier 1";
   if (tier === "tier2") return "Tier 2";
   return "Free";
+}
+
+function haystackIncludes(haystack, query) {
+  if (!query) return true;
+  return String(haystack || "").toLowerCase().includes(query);
+}
+
+function materialOrderSearchText(order) {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  const itemBits = items
+    .map((line) =>
+      [line.productName, line.categoryLabel, line.kitSize, line.productKey]
+        .filter(Boolean)
+        .join(" ")
+    )
+    .join(" ");
+  return [
+    order?.po_name,
+    order?.poName,
+    order?.id,
+    order?.status,
+    itemBits,
+    order?.total_price,
+  ]
+    .filter((v) => v != null && v !== "")
+    .join(" ");
+}
+
+function calculatorOrderSearchText(order) {
+  const jobs = Array.isArray(order?.jobs) ? order.jobs : [];
+  const jobBits = jobs
+    .map((j) =>
+      [j.jobNamePo, j.address, j.systemCode, j.systemLabel, j.color]
+        .filter(Boolean)
+        .join(" ")
+    )
+    .join(" ");
+  return [
+    order?.job_name,
+    order?.jobNamePo,
+    order?.address,
+    order?.system_code,
+    order?.systemCode,
+    jobBits,
+  ]
+    .filter((v) => v != null && v !== "")
+    .join(" ");
 }
 
 function getAnniversaryWindowStart(anniversaryIso) {
@@ -1253,6 +1300,7 @@ export default function App() {
   const [poCountThisYear, setPoCountThisYear] = useState(0);
   const [poHistory, setPoHistory] = useState([]);
   const [materialOrderHistory, setMaterialOrderHistory] = useState([]);
+  const [ordersSearchQuery, setOrdersSearchQuery] = useState("");
   const [finishTypeError, setFinishTypeError] = useState("");
   /** Screen to return to when leaving Plan Comparison */
   const [plansReturnPhase, setPlansReturnPhase] = useState("questions");
@@ -1964,6 +2012,33 @@ export default function App() {
   const maxActiveJobs = getMaxJobsForMembershipTier(membershipTier);
   const poUsage = getTier1PoStatus({ ...(userProfile || {}), annual_po_count: poCountThisYear });
   const poCounterLabel = getPoCounterLabel(poUsage);
+  const ordersSearchNormalized = ordersSearchQuery.trim().toLowerCase();
+  const filteredMaterialOrderHistory = useMemo(() => {
+    const profileBits = [
+      userProfile?.first_name,
+      userProfile?.last_name,
+      userProfile?.company_name,
+      userProfile?.email,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return materialOrderHistory.filter((o) =>
+      haystackIncludes(`${materialOrderSearchText(o)} ${profileBits}`, ordersSearchNormalized)
+    );
+  }, [materialOrderHistory, ordersSearchNormalized, userProfile]);
+  const filteredPoHistory = useMemo(() => {
+    const profileBits = [
+      userProfile?.first_name,
+      userProfile?.last_name,
+      userProfile?.company_name,
+      userProfile?.email,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return poHistory.filter((o) =>
+      haystackIncludes(`${calculatorOrderSearchText(o)} ${profileBits}`, ordersSearchNormalized)
+    );
+  }, [poHistory, ordersSearchNormalized, userProfile]);
   const combinedOrderLines = results
     ? aggregateOrderLines([...orderJobs.map((j) => j.orderLines), results.orderLines])
     : [];
@@ -3155,16 +3230,6 @@ export default function App() {
                     onClick={goNewJobQuote}
                   >
                     NEW JOB QUOTE
-                  </button>
-                  <button
-                    type="button"
-                    style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
-                    onClick={() => {
-                      setHeaderMenuOpen(false);
-                      goToJobCalculator();
-                    }}
-                  >
-                    Job Calculator
                   </button>
                   <button
                     type="button"
@@ -4986,17 +5051,25 @@ export default function App() {
         {currentUser && phase === "orders" && (
           <>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 4, marginTop: 8 }}>
-              <button type="button" style={S.btnSm} onClick={goToJobCalculator}>
-                ← Job Calculator
+              <button type="button" style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }} onClick={goNewJobQuote}>
+                NEW JOB QUOTE
               </button>
               <button type="button" style={S.btnSm} onClick={() => goToPlans("orders")}>
                 Plans
               </button>
-              <button type="button" style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }} onClick={goNewJobQuote}>
-                NEW JOB QUOTE
-              </button>
             </div>
             <div style={S.sectionHead}>My Orders</div>
+            <div style={{ ...S.card, marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: "#9bb2d1", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6, fontFamily: "'Encode Sans Expanded', sans-serif" }}>
+                Search orders
+              </div>
+              <input
+                style={S.input}
+                value={ordersSearchQuery}
+                onChange={(e) => setOrdersSearchQuery(e.target.value)}
+                placeholder="PO name/number, customer, system, address, color…"
+              />
+            </div>
             {membershipTier === "free" ? (
               <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.08)" }}>
                 <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
@@ -5066,29 +5139,33 @@ export default function App() {
                     if (session?.user?.id) await loadMaterialOrderHistory(session);
                   }}
                 />
-                {materialOrderHistory.length > 0 && (
-                  <div style={{ ...S.card, marginTop: 12 }}>
-                    <div style={{ fontSize: 11, color: "#9bb2d1", marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                      Material PO history
+                <div style={{ ...S.sectionHead, marginTop: 20 }}>MANUAL PO HISTORY</div>
+                <div style={S.card}>
+                  {filteredMaterialOrderHistory.length === 0 ? (
+                    <div style={{ fontSize: 11, color: "#9bb2d1" }}>
+                      {ordersSearchNormalized ? "No manual POs match your search." : "No manual POs yet."}
                     </div>
-                    {materialOrderHistory.map((o, i) => (
+                  ) : (
+                    filteredMaterialOrderHistory.map((o, i) => (
                       <div key={`mat-${o.id || i}`} style={{ borderBottom: "1px solid #113a72", padding: "8px 0" }}>
                         <div style={{ fontSize: 12, color: "#fff", fontWeight: 900 }}>
-                          Material PO · ${Number(o.total_price || 0).toFixed(2)}
+                          {o.po_name || o.poName || "Manual PO"} · ${Number(o.total_price || 0).toFixed(2)}
                         </div>
                         <div style={{ fontSize: 10, color: "#9bb2d1" }}>
                           {new Date(o.created_at).toLocaleString()} · {Array.isArray(o.items) ? o.items.length : 0} line(s) · saved ${Number(o.total_discount || 0).toFixed(2)}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-                <div style={{ ...S.sectionHead, marginTop: 20 }}>System calculator POs</div>
+                    ))
+                  )}
+                </div>
+                <div style={{ ...S.sectionHead, marginTop: 20 }}>Past Calculator PO Submissions (Orders)</div>
                 <div style={S.card}>
-                  {poHistory.length === 0 ? (
-                    <div style={{ fontSize: 11, color: "#9bb2d1" }}>No submitted calculator POs yet.</div>
+                  {filteredPoHistory.length === 0 ? (
+                    <div style={{ fontSize: 11, color: "#9bb2d1" }}>
+                      {ordersSearchNormalized ? "No calculator POs match your search." : "No submitted calculator POs yet."}
+                    </div>
                   ) : (
-                    poHistory.map((o, i) => (
+                    filteredPoHistory.map((o, i) => (
                       <div key={`${o.id || o.created_at}-${i}`} style={{ borderBottom: "1px solid #113a72", padding: "10px 0" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                           <div>
@@ -5110,10 +5187,7 @@ export default function App() {
               </>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
-              <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={goToJobCalculator}>
-                ← Back to Job Calculator
-              </button>
-              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={goNewJobQuote}>
+              <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={goNewJobQuote}>
                 NEW JOB QUOTE
               </button>
             </div>
@@ -5130,8 +5204,8 @@ export default function App() {
               >
                 {plansBackLabel()}
               </button>
-              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={goToJobCalculator}>
-                ← Job Calculator
+              <button type="button" style={{ ...S.btnSm, width: "100%", borderColor: "#e33433", color: "#fff" }} onClick={goNewJobQuote}>
+                NEW JOB QUOTE
               </button>
             </div>
             <div style={S.sectionHeadGold}>Choose Your Membership</div>

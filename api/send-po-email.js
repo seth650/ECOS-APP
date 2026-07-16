@@ -170,6 +170,7 @@ Customer
   Name: ${name}
   Email: ${email}
   Company: ${company}
+  PO Number / Name: ${order?.po_name || order?.poName || "(none)"}
   Membership tier: ${membership}
   Contractor / FGP tier: ${contractorTier}
   Material pricing applied: ${tierLabel}
@@ -187,7 +188,10 @@ Status: ${order?.status || "submitted"}
 
 — Sent automatically from ECOS (epoxyquoting.com)`;
 
-  const subject = `ECOS Material PO — ${name} — ${usd(totals.totalPrice)}`;
+  const poLabel = order?.po_name || order?.poName;
+  const subject = poLabel
+    ? `ECOS Material PO — ${poLabel} — ${name} — ${usd(totals.totalPrice)}`
+    : `ECOS Material PO — ${name} — ${usd(totals.totalPrice)}`;
   return { subject, body };
 }
 
@@ -331,8 +335,16 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, order: existing, duplicate: true, emailed: false });
     }
 
+    const poName =
+      typeof order?.po_name === "string"
+        ? order.po_name.trim()
+        : typeof order?.poName === "string"
+          ? order.poName.trim()
+          : "";
+
     const record = {
       user_id: user.id,
+      po_name: poName || null,
       items: pricedLines,
       total_msrp: totals.totalMsrp,
       total_discount: totals.totalDiscount,
@@ -350,34 +362,48 @@ export default async function handler(req, res) {
       total_price: record.total_price,
       total_discount: record.total_discount,
       customerEmail: profile.email,
+      po_name: record.po_name,
     });
 
-    const { data: inserted, error: insertError } = await admin
-      .from("material_orders")
-      .insert(record)
-      .select("*")
-      .single();
-
-    console.log("[send-po-email] INSERT RESPONSE", { data: inserted, error: insertError });
-
-    if (insertError) {
-      if (insertError.code === "23505") {
+    let savedRow = null;
+    {
+      const firstTry = await admin.from("material_orders").insert(record).select("*").single();
+      console.log("[send-po-email] INSERT RESPONSE", { data: firstTry.data, error: firstTry.error });
+      if (!firstTry.error && firstTry.data?.id) {
+        savedRow = firstTry.data;
+      } else if (firstTry.error?.code === "23505") {
         const { data: raced } = await admin.from("material_orders").select("*").eq("request_id", requestId).maybeSingle();
         if (raced) {
           return res.status(200).json({ ok: true, order: raced, duplicate: true, emailed: false });
         }
+        return res.status(500).json({ error: firstTry.error.message || "Duplicate request conflict." });
+      } else if (firstTry.error && /po_name/i.test(firstTry.error.message || "")) {
+        const { po_name: _omit, ...withoutPoName } = record;
+        const retry = await admin.from("material_orders").insert(withoutPoName).select("*").single();
+        console.warn("[send-po-email] retried insert without po_name", { error: retry.error });
+        if (!retry.error && retry.data?.id) {
+          savedRow = { ...retry.data, po_name: poName || null };
+        } else {
+          const err = retry.error || firstTry.error;
+          return res.status(500).json({
+            error: `${err.message || "Failed to save material_orders."} Re-run supabase/material_orders.sql (adds po_name).`,
+            details: err.details || null,
+            hint: err.hint || null,
+          });
+        }
+      } else if (firstTry.error) {
+        const hint = /request_id|column/i.test(firstTry.error.message || "")
+          ? " Re-run supabase/material_orders.sql (adds request_id / po_name)."
+          : "";
+        return res.status(500).json({
+          error: `${firstTry.error.message || "Failed to save material_orders."}${hint}`,
+          details: firstTry.error.details || null,
+          hint: firstTry.error.hint || null,
+        });
       }
-      const hint = /request_id|column/i.test(insertError.message || "")
-        ? " Re-run supabase/material_orders.sql (adds request_id)."
-        : "";
-      return res.status(500).json({
-        error: `${insertError.message || "Failed to save material_orders."}${hint}`,
-        details: insertError.details || null,
-        hint: insertError.hint || null,
-      });
     }
 
-    if (!inserted?.id) {
+    if (!savedRow?.id) {
       return res.status(500).json({ error: "Insert returned no row — refusing to email Gary." });
     }
 
@@ -388,10 +414,10 @@ export default async function handler(req, res) {
       console.error("[send-po-email] annual_po_count increment failed", counterErr);
     }
 
-    console.log("[send-po-email] BEFORE email to Gary", { orderId: inserted.id, tierKey, annualPoCount });
+    console.log("[send-po-email] BEFORE email to Gary", { orderId: savedRow.id, tierKey, annualPoCount });
     try {
       const emailJson = await sendGaryEmail({
-        order: inserted,
+        order: savedRow,
         profile,
         tierKey,
         pricedLines,
@@ -400,7 +426,7 @@ export default async function handler(req, res) {
       console.log("[send-po-email] EMAIL RESPONSE", { id: emailJson?.id || null });
       return res.status(200).json({
         ok: true,
-        order: inserted,
+        order: savedRow,
         duplicate: false,
         emailed: true,
         emailId: emailJson?.id || null,
@@ -411,9 +437,10 @@ export default async function handler(req, res) {
     } catch (emailErr) {
       console.error("[send-po-email] email failed after insert", emailErr);
       return res.status(502).json({
-        error: `Order saved (id ${inserted.id}) but email to FGP failed: ${emailErr.message || "email error"}`,
-        order: inserted,
+        error: `Order saved (id ${savedRow.id}) but email to FGP failed: ${emailErr.message || "email error"}`,
+        order: savedRow,
         emailed: false,
+        annual_po_count: annualPoCount,
       });
     }
   } catch (error) {
