@@ -14,6 +14,7 @@ import {
   getMaterialOrderTierLabel,
 } from "./materialOrderPricing.js";
 import { getPoCounterLabel } from "./poLimits.js";
+import UpgradeUpsell from "./UpgradeUpsell.jsx";
 
 const usd = (n) => `$${Number(n || 0).toFixed(2)}`;
 
@@ -28,6 +29,7 @@ export default function MaterialOrderForm({
 }) {
   const tierKey = useMemo(() => getMaterialOrderPricingTierKey(userProfile || {}), [userProfile]);
   const tierLabel = getMaterialOrderTierLabel(tierKey);
+  const membershipTier = String(userProfile?.membership_tier || "free").toLowerCase();
   const poCounterLabel = poUsage ? getPoCounterLabel(poUsage) : "";
   const poBlocked = !!poUsage?.atLimit;
 
@@ -316,6 +318,10 @@ export default function MaterialOrderForm({
         {" · "}
         Ancillaries: {tierKey === "preferred" ? "5% off MSRP" : "MSRP"}
       </div>
+
+      {membershipTier === "tier1" && (
+        <UpgradeUpsell variant="material-order" btnSmStyle={S.btnSm} onUpgrade={() => onUpgrade?.()} />
+      )}
 
       <label style={{ display: "block", fontSize: 10, color: "#9bb2d1", marginBottom: 12 }}>
         PO Number / Name <span style={{ color: "#6b7f99", fontWeight: 400 }}>(optional)</span>

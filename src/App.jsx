@@ -8,6 +8,7 @@ import {
   resolveLayerProductKey,
 } from "./products.js";
 import MaterialOrderForm from "./MaterialOrderForm.jsx";
+import UpgradeUpsell from "./UpgradeUpsell.jsx";
 import { openJobCardPrint } from "./jobCardPrint.js";
 import {
   MAX_FREE_JOBS,
@@ -3426,25 +3427,6 @@ export default function App() {
           </div>
         )}
 
-        {currentUser && membershipTier === "tier1" && poUsage.atWarning && (
-          <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.14)", marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>
-              {poUsage.count} of {poUsage.limit} POs used this year
-            </div>
-          </div>
-        )}
-
-        {currentUser && membershipTier === "tier1" && poUsage.atLimit && (
-          <div style={{ ...S.card, border: "1px solid #e33433", background: "rgba(227, 52, 51, 0.14)", marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: "#fca5a5", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 6 }}>
-              PO limit reached
-            </div>
-            <button type="button" style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }} onClick={() => setPhase("plans")}>
-              Upgrade to Tier 2 for unlimited
-            </button>
-          </div>
-        )}
-
         {shouldShowContractorPricingReminder && (
           <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.12)", marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 5 }}>
@@ -4459,6 +4441,14 @@ export default function App() {
               </div>
             </div>
 
+            {membershipTier !== "tier2" && (
+              <UpgradeUpsell
+                variant="calculator-submit"
+                btnSmStyle={S.btnSm}
+                onUpgrade={() => goToPlans("submitted")}
+              />
+            )}
+
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <button type="button" style={{ ...S.btn, background: "#e33433", marginTop: 0 }} onClick={reset}>
                 Start a New Order
@@ -5165,7 +5155,7 @@ export default function App() {
                   <div
                     style={{
                       ...S.card,
-                      marginBottom: 12,
+                      marginBottom: poUsage.atWarning || poUsage.atLimit ? 0 : 12,
                       border: poUsage.atLimit ? "1px solid #e33433" : poUsage.atWarning ? "1px solid #eab308" : "1px solid #113a72",
                       background: poUsage.atLimit
                         ? "rgba(227, 52, 51, 0.12)"
@@ -5177,12 +5167,14 @@ export default function App() {
                     <div style={{ fontSize: 12, color: poUsage.atLimit ? "#fca5a5" : poUsage.atWarning ? "#f5d676" : "#d2def1", fontWeight: 900 }}>
                       {poCounterLabel}
                     </div>
-                    {poUsage.atLimit && (
-                      <button type="button" style={{ ...S.btnSm, marginTop: 8, borderColor: "#e33433", color: "#fff" }} onClick={() => setPhase("plans")}>
-                        Upgrade to Tier 2 for unlimited
-                      </button>
-                    )}
                   </div>
+                )}
+                {membershipTier === "tier1" && (poUsage.atWarning || poUsage.atLimit) && (
+                  <UpgradeUpsell
+                    variant="po-warning"
+                    btnSmStyle={S.btnSm}
+                    onUpgrade={() => goToPlans("orders")}
+                  />
                 )}
                 <MaterialOrderForm
                   key={`material-order-${session?.user?.id || "anon"}`}
@@ -5309,7 +5301,6 @@ export default function App() {
                   <li>50 POs saved per year</li>
                   <li>PO history in My Orders</li>
                   <li>Job Card printing (2 per page)</li>
-                  <li>Upgrade prompts at 45 POs</li>
                 </ul>
                 <button
                   type="button"
