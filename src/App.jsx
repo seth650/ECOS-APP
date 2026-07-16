@@ -3181,20 +3181,20 @@ export default function App() {
                     style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
                     onClick={() => {
                       setHeaderMenuOpen(false);
-                      setPhase("account");
+                      setPhase("orders");
                     }}
                   >
-                    My Account
+                    My Orders
                   </button>
                   <button
                     type="button"
                     style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
                     onClick={() => {
                       setHeaderMenuOpen(false);
-                      setPhase("orders");
+                      setPhase("account");
                     }}
                   >
-                    My Orders
+                    My Account
                   </button>
                   <button
                     type="button"
@@ -3209,46 +3209,6 @@ export default function App() {
           )}
         </div>
       </div>
-
-      {session?.user && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 6,
-            padding: "8px 14px 0",
-            justifyContent: "flex-end",
-          }}
-        >
-          {[
-            { label: "Calculator", active: phase === "questions" || phase === "results", onClick: goToJobCalculator },
-            { label: "Plans", active: phase === "plans", onClick: () => goToPlans(phase) },
-            { label: "Orders", active: phase === "orders", onClick: () => setPhase("orders") },
-            { label: "Account", active: phase === "account" || phase === "userdb", onClick: () => setPhase("account") },
-          ].map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={item.onClick}
-              style={{
-                background: item.active ? "#113a72" : "transparent",
-                border: `1px solid ${item.active ? "#e33433" : "#113a72"}`,
-                color: item.active ? "#ffffff" : "#9bb2d1",
-                borderRadius: 4,
-                fontSize: 9,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                padding: "4px 8px",
-                cursor: "pointer",
-                fontFamily: "'Encode Sans Expanded', sans-serif",
-                fontWeight: 700,
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div style={S.body}>
         {stripeBanner && (
