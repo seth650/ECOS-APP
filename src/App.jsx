@@ -3466,6 +3466,74 @@ export default function App() {
 
         {currentUser && phase === "questions" && (
           <>
+            {(membershipTier === "free" || membershipTier === "tier1") && (
+              <div
+                style={{
+                  marginBottom: 10,
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  border: "1px solid rgba(227, 52, 51, 0.35)",
+                  background: "rgba(17, 58, 114, 0.45)",
+                  fontSize: 11,
+                  color: "#d2def1",
+                  lineHeight: 1.45,
+                }}
+              >
+                Don&apos;t like our systems? Build your own in{" "}
+                <button
+                  type="button"
+                  onClick={() => goToPlans("questions")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    margin: 0,
+                    color: "#f5d676",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    fontSize: 11,
+                    fontFamily: "inherit",
+                    fontWeight: 700,
+                  }}
+                >
+                  Tier 2
+                </button>
+              </div>
+            )}
+            <div
+              style={{
+                marginBottom: 14,
+                padding: "8px 12px",
+                borderRadius: 6,
+                border: "1px solid rgba(155, 178, 209, 0.28)",
+                background: "rgba(10, 24, 48, 0.55)",
+                fontSize: 11,
+                color: "#9bb2d1",
+                lineHeight: 1.45,
+              }}
+            >
+              Know what you need? Head to{" "}
+              <button
+                type="button"
+                onClick={() => setPhase("orders")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  margin: 0,
+                  color: "#f5d676",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  fontFamily: "inherit",
+                  fontWeight: 700,
+                }}
+              >
+                My Orders
+              </button>{" "}
+              in the Menu
+            </div>
+
             {/* Tier + Job Info */}
             <div style={S.sectionHead}>Job Setup</div>
             <div style={S.card}>
@@ -3553,74 +3621,6 @@ export default function App() {
                   </button>
                 ))}
               </div>
-            </div>
-
-            {(membershipTier === "free" || membershipTier === "tier1") && (
-              <div
-                style={{
-                  marginBottom: 10,
-                  padding: "8px 12px",
-                  borderRadius: 6,
-                  border: "1px solid rgba(227, 52, 51, 0.35)",
-                  background: "rgba(17, 58, 114, 0.45)",
-                  fontSize: 11,
-                  color: "#d2def1",
-                  lineHeight: 1.45,
-                }}
-              >
-                Don&apos;t like our systems? Build your own in{" "}
-                <button
-                  type="button"
-                  onClick={() => goToPlans("questions")}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    margin: 0,
-                    color: "#f5d676",
-                    textDecoration: "underline",
-                    cursor: "pointer",
-                    fontSize: 11,
-                    fontFamily: "inherit",
-                    fontWeight: 700,
-                  }}
-                >
-                  Tier 2
-                </button>
-              </div>
-            )}
-            <div
-              style={{
-                marginBottom: 14,
-                padding: "8px 12px",
-                borderRadius: 6,
-                border: "1px solid rgba(155, 178, 209, 0.28)",
-                background: "rgba(10, 24, 48, 0.55)",
-                fontSize: 11,
-                color: "#9bb2d1",
-                lineHeight: 1.45,
-              }}
-            >
-              Know what you need? Head to{" "}
-              <button
-                type="button"
-                onClick={() => setPhase("orders")}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  margin: 0,
-                  color: "#f5d676",
-                  textDecoration: "underline",
-                  cursor: "pointer",
-                  fontSize: 11,
-                  fontFamily: "inherit",
-                  fontWeight: 700,
-                }}
-              >
-                My Orders
-              </button>{" "}
-              in the Menu
             </div>
 
             <div style={S.sectionHead}>Finish Type</div>
