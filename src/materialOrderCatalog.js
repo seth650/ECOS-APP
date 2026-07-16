@@ -7,37 +7,37 @@ export const MATERIAL_CATEGORY_GROUPS = {
 };
 
 export const MATERIAL_CATEGORIES = [
-  { id: "epoxy", label: "EPOXY", group: "main", productKeys: ["dt454_clear", "dt454_turbo", "hyperbond", "mv2112", "hyperprime_mvb", "hyperprime_mvb_pig", "hydroprime", "hydroprime_40", "marblemax", "maxx_flow", "hyperflow"] },
-  { id: "polyaspartic", label: "POLYASPARTIC", group: "main", productKeys: ["aspartic85"] },
-  { id: "polyurea", label: "POLYUREA", group: "main", productKeys: ["polyurea_slow", "polyurea_med", "polyurea_fast"] },
-  { id: "urethane", label: "URETHANE", group: "main", productKeys: ["ez_top_85"] },
-  { id: "flake", label: "FLAKE", group: "main", productKeys: ["flake_14"] },
-  { id: "repair", label: "REPAIR", group: "main", productKeys: ["patch_pro_10x", "hypercure"] },
-  {
-    id: "epoly_pigment",
-    label: "E-POLY PIGMENT",
-    group: "ancillary",
-    productKeys: () => Object.keys(PRODUCTS).filter((k) => k.startsWith("epoly_pigment_")),
-  },
-  { id: "quartz", label: "QUARTZ", group: "ancillary", productKeys: ["quartz_agg"] },
-  { id: "spike_shoes", label: "SPIKE SHOES", group: "ancillary", productKeys: ["tool_spike_shoes"] },
-  {
-    id: "supplies",
-    label: "SUPPLIES",
-    group: "ancillary",
-    productKeys: ["silica_sand", "wearmax_3lb", "metallic_mica_4oz"],
-  },
-  {
-    id: "tools",
-    label: "TOOLS",
-    group: "ancillary",
-    productKeys: ["accessory_mixing_stick", "accessory_notched_squeegee", "accessory_roller_kit", "accessory_gloves"],
-  },
+  { id: "epoxy", label: "EPOXY", group: "main" },
+  { id: "polyaspartic", label: "POLYASPARTIC", group: "main" },
+  { id: "polyurea", label: "POLYUREA", group: "main" },
+  { id: "urethane", label: "URETHANE", group: "main" },
+  { id: "repair", label: "REPAIR", group: "main" },
+  { id: "flake", label: "FLAKE", group: "main" },
+  { id: "epoly_pigment", label: "E-POLY PIGMENT", group: "ancillary" },
+  { id: "metallic_pigment", label: "METALLIC PIGMENT", group: "ancillary" },
+  { id: "quartz", label: "QUARTZ", group: "ancillary" },
+  { id: "spike_shoes", label: "SPIKE SHOES", group: "ancillary" },
+  { id: "supplies", label: "SUPPLIES", group: "ancillary" },
+  { id: "tools", label: "TOOLS", group: "ancillary" },
 ];
 
-export function getCategoryProductKeys(category) {
-  const keys = category.productKeys;
-  return typeof keys === "function" ? keys() : keys;
+/** Keys that are calculator aliases — hide from manual PO picker (base SKU shown instead). */
+const HIDDEN_CATALOG_KEYS = new Set([
+  "hyperbond",
+  "dt454_turbo",
+  "aspartic85",
+  "marblemax",
+  "wearmax_3lb",
+  "flake_14",
+  "tool_spike_shoes",
+  "epoly_pigment_nonstock",
+]);
+
+export function getCategoryProductKeys(categoryId) {
+  return Object.entries(PRODUCTS)
+    .filter(([key, p]) => p.materialCategory === categoryId && !HIDDEN_CATALOG_KEYS.has(key))
+    .map(([key]) => key)
+    .sort((a, b) => (PRODUCTS[a]?.name || a).localeCompare(PRODUCTS[b]?.name || b));
 }
 
 export function isAncillaryCategory(categoryId) {
@@ -48,7 +48,7 @@ export function isAncillaryCategory(categoryId) {
 export function listCatalogProducts(categoryId) {
   const category = MATERIAL_CATEGORIES.find((c) => c.id === categoryId);
   if (!category) return [];
-  return getCategoryProductKeys(category)
+  return getCategoryProductKeys(categoryId)
     .filter((key) => PRODUCTS[key])
     .map((key) => ({
       productKey: key,

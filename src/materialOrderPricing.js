@@ -59,6 +59,10 @@ export function unitMsrpForKit(productKey, kitIndex = 0) {
 
 export function unitPriceForLine({ productKey, kitIndex, categoryId, tierKey }) {
   const msrp = unitMsrpForKit(productKey, kitIndex);
+  const kit = PRODUCTS[productKey]?.kits?.[kitIndex] || PRODUCTS[productKey]?.kits?.[0];
+  if (kit?.tierPrices && typeof kit.tierPrices[tierKey] === "number") {
+    return { msrp, unitPrice: +Number(kit.tierPrices[tierKey]).toFixed(2), mult: null };
+  }
   const tier = MATERIAL_PRICING_TIERS[tierKey] || MATERIAL_PRICING_TIERS.msrp;
   const mult = isAncillaryCategory(categoryId) ? tier.ancillaryMult : tier.mainMult;
   return { msrp, unitPrice: +(msrp * mult).toFixed(2), mult };
