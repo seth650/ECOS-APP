@@ -9,6 +9,7 @@ import {
 } from "./products.js";
 import MaterialOrderForm from "./MaterialOrderForm.jsx";
 import UpgradeUpsell from "./UpgradeUpsell.jsx";
+import MyFloorSystems from "./MyFloorSystems.jsx";
 import { openJobCardPrint } from "./jobCardPrint.js";
 import {
   MAX_FREE_JOBS,
@@ -18,6 +19,13 @@ import {
   getTier1PoStatus,
   normalizePoProfileFields,
 } from "./poLimits.js";
+import {
+  buildCustomOrderLines,
+  groupLinesByVendor,
+  isCustomSystemKey,
+  toCalculatorSystem,
+} from "./customFloorSystems.js";
+import { buildVendorPoText, openVendorPoPrint } from "./vendorPoPrint.js";
 
 const HEADER_LOGO_URL = "/favicon.svg";
 /** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
@@ -1267,10 +1275,14 @@ export default function App() {
   const [assignedPricingTierKey, setAssignedPricingTierKey] = useState("msrp");
   const [profileVersion, setProfileVersion] = useState(0);
   const [speed, setSpeed] = useState("");
-  const [phase, setPhase] = useState("questions"); // questions | results | submitted | account | userdb | orders | plans
+  const [phase, setPhase] = useState("questions"); // questions | results | submitted | account | userdb | orders | plans | floor-systems | customer-quotes
   const [contractorName, setContractorName] = useState("");
   const [jobName, setJobName] = useState("");
   const [submittedDraft, setSubmittedDraft] = useState(null);
+  const [customFloorSystems, setCustomFloorSystems] = useState([]);
+  const [contractorVendors, setContractorVendors] = useState([]);
+  const [vendorPoStatus, setVendorPoStatus] = useState(""); // confirmation after email
+  const [vendorPoSending, setVendorPoSending] = useState(false);
   const [orderJobs, setOrderJobs] = useState([]);
   const [session, setSession] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
@@ -1350,10 +1362,40 @@ export default function App() {
         return "← Back to account";
       case "orders":
         return "← Back to My Orders";
+      case "floor-systems":
+        return "← Back to My Floor Systems";
+      case "customer-quotes":
+        return "← Back to Customer Quotes";
       case "questions":
         return "← Back to job calculator";
       default:
         return "← Back to job calculator";
+    }
+  }
+
+  async function loadCustomFloorData(activeSession = null) {
+    const authSession = activeSession || session;
+    const uid = authSession?.user?.id;
+    if (!uid) {
+      setCustomFloorSystems([]);
+      setContractorVendors([]);
+      return;
+    }
+    const tier = String(userProfileRef.current?.membership_tier || "free").toLowerCase();
+    if (tier !== "tier2") {
+      setCustomFloorSystems([]);
+      setContractorVendors([]);
+      return;
+    }
+    try {
+      const [sysRes, vendRes] = await Promise.all([
+        supabase.from("custom_floor_systems").select("*").eq("user_id", uid).order("updated_at", { ascending: false }),
+        supabase.from("contractor_vendors").select("*").eq("user_id", uid).order("name"),
+      ]);
+      if (!sysRes.error) setCustomFloorSystems(sysRes.data || []);
+      if (!vendRes.error) setContractorVendors(vendRes.data || []);
+    } catch (e) {
+      console.warn("[ECOS] loadCustomFloorData", e);
     }
   }
 
@@ -1436,6 +1478,15 @@ export default function App() {
   useEffect(() => {
     userProfileRef.current = userProfile;
   }, [userProfile]);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setCustomFloorSystems([]);
+      setContractorVendors([]);
+      return;
+    }
+    void loadCustomFloorData(session);
+  }, [session?.user?.id, userProfile?.membership_tier, profileVersion]);
 
   useEffect(() => {
     return () => {
@@ -1784,18 +1835,36 @@ export default function App() {
   const autoSystemKey = getRecommendedSystem(answers, currentPlan);
   const activeSystemKey = manualSystemKey || autoSystemKey;
   const isFreePlan = currentPlan === "Free";
-  const isRecommendedSystemLocked = Boolean(activeSystemKey) && isFreePlan && !FREE_UNLOCKED_SYSTEMS.has(activeSystemKey);
-  const activeSystemFamily = getSystemFamily(activeSystemKey || "");
-  const activeCategory = getSystemCategory(activeSystemKey || "");
-  const activeTheme = CATEGORY_THEME[activeCategory];
-  const recommendedSystem = activeSystemKey ? SYSTEMS[activeSystemKey] : null;
+  const isCustomActive = isCustomSystemKey(activeSystemKey);
+  const customSystemMap = useMemo(() => {
+    const map = {};
+    for (const s of customFloorSystems) {
+      const adapted = toCalculatorSystem(s);
+      if (adapted) map[adapted.code] = adapted;
+    }
+    return map;
+  }, [customFloorSystems]);
+  const isRecommendedSystemLocked =
+    Boolean(activeSystemKey) &&
+    !isCustomActive &&
+    isFreePlan &&
+    !FREE_UNLOCKED_SYSTEMS.has(activeSystemKey);
+  const activeSystemFamily = isCustomActive ? "custom" : getSystemFamily(activeSystemKey || "");
+  const activeCategory = isCustomActive ? "grind_seal" : getSystemCategory(activeSystemKey || "");
+  const activeTheme = CATEGORY_THEME[activeCategory] || CATEGORY_THEME.flake;
+  const recommendedSystem = activeSystemKey
+    ? isCustomActive
+      ? customSystemMap[activeSystemKey] || null
+      : SYSTEMS[activeSystemKey]
+    : null;
   const locationSystems = getFullLocationSystemKeys(answers.location);
   const otherLocationSystems = locationSystems.filter((key) => key !== activeSystemKey);
   const finishOptionsForPlan = FINISH_OPTIONS;
   const benchmarkDisclaimer = `Material benchmark @ ${SYSTEM_BENCHMARK_SQFT} ft² using purchasable kits (no crack repair / no steps).`;
-  const activeSystemBenchmarkPerSqFt = activeSystemKey
-    ? getSystemMaterialBenchmarkPerSqFt(activeSystemKey, contractorPricingTierKey, answers, speed)
-    : null;
+  const activeSystemBenchmarkPerSqFt =
+    activeSystemKey && !isCustomActive
+      ? getSystemMaterialBenchmarkPerSqFt(activeSystemKey, contractorPricingTierKey, answers, speed)
+      : null;
   const speedIsRequired = answers.location === "exterior" && activeSystemKey === "FLK-OD-RES";
   const shouldAskUseType = !isFreePlan;
   const shouldAskOdorConcern = ["metallic", "solid", "solid_tex"].includes(answers.finish);
@@ -1836,14 +1905,15 @@ export default function App() {
             ...color,
             swatchUrl: flakeSwatchUrls[makeSwatchKey(color.value)] || null,
           }));
-  const readyForQuote =
-    Boolean(activeSystemKey) &&
-    !isRecommendedSystemLocked &&
-    sqFt !== "" &&
-    hasRequiredRefineAnswers &&
-    hasColorSelection &&
-    hasMetallicInputs &&
-    hasSpeedSelection;
+  const readyForQuote = isCustomActive
+    ? Boolean(recommendedSystem) && sqFt !== ""
+    : Boolean(activeSystemKey) &&
+      !isRecommendedSystemLocked &&
+      sqFt !== "" &&
+      hasRequiredRefineAnswers &&
+      hasColorSelection &&
+      hasMetallicInputs &&
+      hasSpeedSelection;
   const swatchGridColumns = isNarrowScreen
     ? activeSystemFamily === "flake"
       ? "repeat(3, minmax(0, 1fr))"
@@ -1976,8 +2046,12 @@ export default function App() {
       metallicPrimerTint: answers.metallicPrimerTint || "Gray",
     };
     const layers = recommendedSystem.layers(sf, opts);
-    const orderLines = buildOrderList(layers, contractorPricingTierKey, answers);
-    const requiredMaterialTierTotal = getRequiredMaterialTierTotal(layers, contractorPricingTierKey, answers);
+    const orderLines = recommendedSystem.isCustom
+      ? buildCustomOrderLines(layers, TIERS[contractorPricingTierKey]?.mult ?? 1)
+      : buildOrderList(layers, contractorPricingTierKey, answers);
+    const requiredMaterialTierTotal = recommendedSystem.isCustom
+      ? orderLines.reduce((s, l) => s + l.lineTier, 0)
+      : getRequiredMaterialTierTotal(layers, contractorPricingTierKey, answers);
     const totalMsrp = orderLines.reduce((s, l) => s + l.lineMsrp, 0);
     const totalTier = orderLines.reduce((s, l) => s + l.lineTier, 0);
     const totalDiscount = totalMsrp - totalTier;
@@ -2532,7 +2606,12 @@ export default function App() {
   }, [phase]);
 
   useEffect(() => {
-    if (manualSystemKey && answers.location && !locationSystems.includes(manualSystemKey)) {
+    if (
+      manualSystemKey &&
+      answers.location &&
+      !isCustomSystemKey(manualSystemKey) &&
+      !locationSystems.includes(manualSystemKey)
+    ) {
       setManualSystemKey(null);
     }
   }, [manualSystemKey, answers.location, locationSystems]);
@@ -2633,6 +2712,7 @@ export default function App() {
       jobNamePo: jobsForPo.map((j) => j.jobNamePo).join(" + ") || "Untitled Job / PO",
       address: jobsForPo.map((j) => j.address).join(" | ") || "—",
       systemCode: recommendedSystem.code,
+      systemLabel: recommendedSystem.label,
       totalTier: combinedTotals.totalTier,
       sqFt: combinedTotals.totalSqFt,
       costPerSqFt:
@@ -2643,24 +2723,33 @@ export default function App() {
       combinedOrderLines,
       totalMsrp: combinedTotals.totalMsrp,
       totalDiscount: combinedTotals.totalDiscount,
+      isCustom: !!recommendedSystem.isCustom,
+      orderId: null,
+      vendorPoSentAt: null,
     });
-    setOrderSubmitMessage("Sending PO to FGP Midwest...");
+    setVendorPoStatus("");
+    const isCustomQuote = !!recommendedSystem.isCustom;
+    setOrderSubmitMessage(isCustomQuote ? "Saving custom system order…" : "Sending PO to FGP Midwest...");
     try {
-      try {
-        const sendRes = await fetch("/api/send-po", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subject, body }),
-        });
-        if (!sendRes.ok) {
-          const sendErr = await sendRes.json().catch(() => ({}));
-          throw new Error(sendErr?.error || "PO email send failed.");
+      if (!isCustomQuote) {
+        try {
+          const sendRes = await fetch("/api/send-po", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subject, body }),
+          });
+          if (!sendRes.ok) {
+            const sendErr = await sendRes.json().catch(() => ({}));
+            throw new Error(sendErr?.error || "PO email send failed.");
+          }
+          setOrderSubmitMessage("PO sent to orders@fgpmidwest.com.");
+        } catch (sendErr) {
+          setOrderSubmitMessage("Could not send PO automatically. Opening email app fallback.");
+          openFgOrderEmail(body, subject);
+          console.error("[ECOS submit] email error", sendErr);
         }
-        setOrderSubmitMessage("PO sent to orders@fgpmidwest.com.");
-      } catch (sendErr) {
-        setOrderSubmitMessage("Could not send PO automatically. Opening email app fallback.");
-        openFgOrderEmail(body, subject);
-        console.error("[ECOS submit] email error", sendErr);
+      } else {
+        setOrderSubmitMessage("Custom system order saved — generate vendor POs below.");
       }
       if (session?.user?.id) {
         const jobs = jobsForPo;
@@ -2678,12 +2767,14 @@ export default function App() {
               : 0,
           order_lines: combinedOrderLines,
           jobs,
+          is_custom_system: isCustomQuote,
         };
         const { data: inserted, error } = await supabase.from("orders").insert(orderRecord).select().single();
         if (error) {
           console.error("[ECOS submit] orders insert failed", error);
           window.alert(error.message || "Unable to save order to cloud history.");
         } else {
+          setSubmittedDraft((prev) => (prev ? { ...prev, orderId: inserted.id } : prev));
           const nextHistory = [inserted, ...poHistory];
           setPoHistory(nextHistory);
           const nextCount = (poUsage.count || 0) + 1;
@@ -2718,6 +2809,88 @@ export default function App() {
       showAppSuccessToast();
       setPhase("submitted");
       console.info("[ECOS submit] done → submitted phase");
+    }
+  }
+
+  function getVendorGroupsForDraft(draft = submittedDraft) {
+    if (!draft?.isCustom) return [];
+    return groupLinesByVendor(draft.combinedOrderLines || [], contractorVendors);
+  }
+
+  function downloadVendorPoForGroup(group) {
+    const draft = submittedDraft;
+    if (!draft || !group) return;
+    const contractorDisplay =
+      [userProfile?.first_name, userProfile?.last_name].filter(Boolean).join(" ") ||
+      userProfile?.company_name ||
+      currentUser ||
+      "Contractor";
+    openVendorPoPrint({
+      contractorName: contractorDisplay,
+      companyName: userProfile?.company_name || contractorDisplay,
+      vendorName: group.vendorName,
+      vendorEmail: group.vendorEmail,
+      jobName: draft.jobNamePo,
+      address: draft.address,
+      systemName: draft.systemLabel || draft.systemCode,
+      sqFt: draft.sqFt,
+      lines: group.lines,
+      sentAt: draft.vendorPoSentAt,
+    });
+  }
+
+  async function emailVendorPoForGroup(group) {
+    const draft = submittedDraft;
+    if (!draft || !group?.vendorEmail) {
+      window.alert("This vendor group has no email. Add a vendor email in My Floor Systems → Vendors.");
+      return;
+    }
+    const contractorDisplay =
+      [userProfile?.first_name, userProfile?.last_name].filter(Boolean).join(" ") ||
+      userProfile?.company_name ||
+      currentUser ||
+      "Contractor";
+    const subject = `PO — ${userProfile?.company_name || contractorDisplay}`;
+    const body = buildVendorPoText({
+      contractorName: contractorDisplay,
+      companyName: userProfile?.company_name || contractorDisplay,
+      vendorName: group.vendorName,
+      vendorEmail: group.vendorEmail,
+      jobName: draft.jobNamePo,
+      address: draft.address,
+      systemName: draft.systemLabel || draft.systemCode,
+      sqFt: draft.sqFt,
+      lines: group.lines,
+    });
+    setVendorPoSending(true);
+    setVendorPoStatus("");
+    try {
+      const accessToken = session?.access_token;
+      if (!accessToken) throw new Error("Session expired — log in again.");
+      const res = await fetch("/api/send-vendor-po", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          orderId: draft.orderId || null,
+          subject,
+          body,
+          vendorName: group.vendorName,
+          vendorEmail: group.vendorEmail,
+          contractorName: userProfile?.company_name || contractorDisplay,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not email vendor PO.");
+      const sentAt = json.vendor_po_sent_at || new Date().toISOString();
+      setSubmittedDraft((prev) => (prev ? { ...prev, vendorPoSentAt: sentAt } : prev));
+      setVendorPoStatus(json.message || `Order sent to ${group.vendorName} on ${new Date(sentAt).toLocaleString()}`);
+    } catch (e) {
+      setVendorPoStatus(e?.message || "Vendor email failed.");
+    } finally {
+      setVendorPoSending(false);
     }
   }
 
@@ -3242,16 +3415,43 @@ export default function App() {
                   >
                     Plans
                   </button>
-                  <button
-                    type="button"
-                    style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
-                    onClick={() => {
-                      setHeaderMenuOpen(false);
-                      setPhase("orders");
-                    }}
-                  >
-                    My Orders
-                  </button>
+                  {(membershipTier === "tier1" || membershipTier === "tier2") && (
+                    <button
+                      type="button"
+                      style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
+                      onClick={() => {
+                        setHeaderMenuOpen(false);
+                        setPhase("orders");
+                      }}
+                    >
+                      My Orders
+                    </button>
+                  )}
+                  {membershipTier === "tier2" && (
+                    <button
+                      type="button"
+                      style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
+                      onClick={() => {
+                        setHeaderMenuOpen(false);
+                        setPhase("floor-systems");
+                        void loadCustomFloorData(session);
+                      }}
+                    >
+                      My Floor Systems
+                    </button>
+                  )}
+                  {membershipTier === "tier2" && (
+                    <button
+                      type="button"
+                      style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
+                      onClick={() => {
+                        setHeaderMenuOpen(false);
+                        setPhase("customer-quotes");
+                      }}
+                    >
+                      Customer Quotes
+                    </button>
+                  )}
                   <button
                     type="button"
                     style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
@@ -3677,12 +3877,21 @@ export default function App() {
                         >
                           <div style={{ flex: showCutaway ? "1 1 60%" : "1 1 100%", minWidth: 0 }}>
                             <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff", marginBottom: 4, fontFamily: "'Montserrat', sans-serif" }}>
-                              {recommendedSystem.code}
+                              {recommendedSystem.isCustom ? recommendedSystem.label : recommendedSystem.code}
+                              {recommendedSystem.isCustom && (
+                                <span style={{ fontSize: 9, color: "#eab308", border: "1px solid #eab308", borderRadius: 4, padding: "1px 5px", marginLeft: 8 }}>
+                                  CUSTOM
+                                </span>
+                              )}
                             </div>
-                            <div style={{ fontSize: 13, color: "#d2def1", marginBottom: 6 }}>{recommendedSystem.label}</div>
-                            <div style={{ fontSize: 12, color: "#ffffff", marginBottom: 10 }}>
-                              {getRecommendationReason(answers, activeSystemKey)}
+                            <div style={{ fontSize: 13, color: "#d2def1", marginBottom: 6 }}>
+                              {recommendedSystem.isCustom ? "Your custom floor system" : recommendedSystem.label}
                             </div>
+                            {!recommendedSystem.isCustom && (
+                              <div style={{ fontSize: 12, color: "#ffffff", marginBottom: 10 }}>
+                                {getRecommendationReason(answers, activeSystemKey)}
+                              </div>
+                            )}
                             {activeSystemBenchmarkPerSqFt !== null && (
                               <div style={{ marginBottom: 8, maxWidth: showCutaway ? "100%" : 420 }}>
                                 <div style={{ fontSize: 12, color: "#eab308", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>
@@ -3898,9 +4107,12 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (canUpgrade) goToPlans("questions");
+                        if (isTier2) {
+                          setPhase("floor-systems");
+                          void loadCustomFloorData(session);
+                        } else if (canUpgrade) goToPlans("questions");
                       }}
-                      disabled={isTier1 || isTier2}
+                      disabled={isTier1}
                       style={{
                         width: "100%",
                         textAlign: "left",
@@ -3910,17 +4122,17 @@ export default function App() {
                         background: "rgba(55, 65, 81, 0.35)",
                         borderRadius: 8,
                         padding: "12px 12px",
-                        cursor: canUpgrade ? "pointer" : "not-allowed",
-                        opacity: isTier1 ? 0.45 : isTier2 ? 0.75 : 0.9,
+                        cursor: isTier1 ? "not-allowed" : "pointer",
+                        opacity: isTier1 ? 0.45 : isTier2 ? 0.9 : 0.9,
                         filter: isTier1 ? "grayscale(0.35)" : "none",
                       }}
                     >
                       <div style={{ fontSize: 12, color: isTier1 ? "#9ca3af" : "#d1d5db", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, lineHeight: 1.4 }}>
                         Don't like our systems? Build your own in Tier 2 — Upgrade to unlock custom system builder
                       </div>
-                      <div style={{ fontSize: 10, color: canUpgrade ? "#f5d676" : "#9ca3af", marginTop: 4 }}>
+                      <div style={{ fontSize: 10, color: canUpgrade || isTier2 ? "#f5d676" : "#9ca3af", marginTop: 4 }}>
                         {isTier2
-                          ? "Tier 2 custom system builder — coming soon"
+                          ? "Open My Floor Systems →"
                           : isTier1
                             ? "🔒 Locked on Tier 1 — upgrade to Tier 2 to unlock"
                             : "Tap to view Tier 2 upgrade options →"}
@@ -3928,6 +4140,46 @@ export default function App() {
                     </button>
                   );
                 })()}
+                {membershipTier === "tier2" && customFloorSystems.length > 0 && (
+                  <>
+                    <div style={{ ...S.sectionHead, marginTop: 16 }}>My Custom Systems</div>
+                    <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 8 }}>
+                      Select a saved system to use in this quote.
+                    </div>
+                    {customFloorSystems.map((sys) => {
+                      const key = `CUSTOM-${sys.id}`;
+                      const selected = activeSystemKey === key;
+                      return (
+                        <button
+                          key={sys.id}
+                          type="button"
+                          onClick={() => setManualSystemKey(key)}
+                          style={{
+                            width: "100%",
+                            textAlign: "left",
+                            border: `1px solid ${selected ? "#eab308" : "#113a72"}`,
+                            borderLeft: "6px solid #eab308",
+                            background: selected ? "rgba(234, 179, 8, 0.12)" : "rgba(15, 36, 64, 0.88)",
+                            borderRadius: 8,
+                            padding: "10px 10px",
+                            marginBottom: 8,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ fontSize: 12, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 3 }}>
+                            {sys.name}{" "}
+                            <span style={{ fontSize: 9, color: "#eab308", border: "1px solid #eab308", borderRadius: 4, padding: "1px 5px", marginLeft: 4 }}>
+                              CUSTOM
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 10, color: "#d2def1" }}>
+                            {(sys.layers || []).length} layer(s) · Tap to use
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
               </>
             )}
 
@@ -3946,7 +4198,7 @@ export default function App() {
               </div>
             )}
 
-            {recommendedSystem && (
+            {recommendedSystem && !isCustomActive && (
               <>
                 <div style={S.sectionHead}>Color Selection</div>
                 <div style={S.sectionSub}>
@@ -4116,9 +4368,11 @@ export default function App() {
             )}
             {!readyForQuote && recommendedSystem && (
               <div style={{ fontSize: 11, color: "#9bb2d1", marginTop: 10 }}>
-                {isRecommendedSystemLocked
-                  ? "This recommendation is locked on Free. Upgrade to Tier 1 to continue with this system."
-                  : "Complete refine answers, basecoat speed (outdoor), and color selection to continue."}
+                {isCustomActive
+                  ? "Enter square footage to generate a material list for this custom system."
+                  : isRecommendedSystemLocked
+                    ? "This recommendation is locked on Free. Upgrade to Tier 1 to continue with this system."
+                    : "Complete refine answers, basecoat speed (outdoor), and color selection to continue."}
               </div>
             )}
           </>
@@ -4412,7 +4666,7 @@ export default function App() {
                 onClick={handleSubmitOrder}
                 disabled={poUsage.atLimit}
               >
-                Submit Order to FGP Midwest
+                {recommendedSystem?.isCustom ? "Submit Custom System Order" : "Submit Order to FGP Midwest"}
               </button>
             </div>
           </>
@@ -4434,12 +4688,60 @@ export default function App() {
               <div style={{ fontSize: 12, color: "#d2def1", lineHeight: 1.6 }}>
                 <div><span style={{ color: "#9bb2d1" }}>Job / PO #:</span> <span style={{ color: "#ffffff" }}>{submittedDraft.jobNamePo}</span></div>
                 <div><span style={{ color: "#9bb2d1" }}>Address:</span> <span style={{ color: "#ffffff" }}>{submittedDraft.address}</span></div>
-                <div><span style={{ color: "#9bb2d1" }}>System:</span> <span style={{ color: "#ffffff" }}>{submittedDraft.systemCode}</span></div>
+                <div>
+                  <span style={{ color: "#9bb2d1" }}>System:</span>{" "}
+                  <span style={{ color: "#ffffff" }}>{submittedDraft.systemLabel || submittedDraft.systemCode}</span>
+                  {submittedDraft.isCustom && (
+                    <span style={{ fontSize: 9, color: "#eab308", border: "1px solid #eab308", borderRadius: 4, padding: "1px 5px", marginLeft: 6 }}>
+                      CUSTOM
+                    </span>
+                  )}
+                </div>
                 <div><span style={{ color: "#9bb2d1" }}>Sq Ft:</span> <span style={{ color: "#ffffff" }}>{submittedDraft.sqFt.toLocaleString()} ft²</span></div>
                 <div><span style={{ color: "#9bb2d1" }}>Total:</span> <span style={{ color: "#ffffff" }}>${submittedDraft.totalTier.toFixed(2)}</span></div>
                 <div><span style={{ color: "#9bb2d1" }}>Cost / ft²:</span> <span style={{ color: "#eab308" }}>${submittedDraft.costPerSqFt.toFixed(2)}/ft²</span></div>
               </div>
             </div>
+
+            {submittedDraft.isCustom && (
+              <div style={{ ...S.card, border: "1px solid #113a72", marginTop: 4 }}>
+                <div style={{ fontSize: 13, color: "#fff", fontWeight: 900, marginBottom: 6 }}>Vendor POs</div>
+                <div style={{ fontSize: 11, color: "#9bb2d1", marginBottom: 10, lineHeight: 1.45 }}>
+                  Download a printable PDF or email the PO directly to each vendor. Contractor name is front & center; ECOS branding is in the footer.
+                </div>
+                {getVendorGroupsForDraft(submittedDraft).map((group) => (
+                  <div key={group.vendorId || "none"} style={{ borderTop: "1px solid #113a72", padding: "10px 0" }}>
+                    <div style={{ fontSize: 12, color: "#fff", fontWeight: 900 }}>{group.vendorName}</div>
+                    <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 8 }}>
+                      {group.vendorEmail || "No email on file"} · {group.lines.length} line(s)
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button type="button" style={S.btnSm} onClick={() => downloadVendorPoForGroup(group)}>
+                        Download PDF
+                      </button>
+                      <button
+                        type="button"
+                        style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }}
+                        disabled={vendorPoSending || !group.vendorEmail}
+                        onClick={() => void emailVendorPoForGroup(group)}
+                      >
+                        {vendorPoSending ? "Sending…" : "Email to vendor"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {vendorPoStatus && (
+                  <div style={{ marginTop: 10, fontSize: 11, color: /sent/i.test(vendorPoStatus) ? "#86efac" : "#fca5a5" }}>
+                    {vendorPoStatus}
+                  </div>
+                )}
+                {submittedDraft.vendorPoSentAt && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#86efac" }}>
+                    Order sent on {new Date(submittedDraft.vendorPoSentAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            )}
 
             {membershipTier !== "tier2" && (
               <UpgradeUpsell
@@ -5254,6 +5556,47 @@ export default function App() {
           </>
         )}
 
+        {currentUser && phase === "floor-systems" && (
+          <>
+            {membershipTier !== "tier2" ? (
+              <div style={{ ...S.card, border: "1px solid #eab308" }}>
+                <div style={{ fontSize: 13, color: "#f5d676", fontWeight: 900, marginBottom: 8 }}>
+                  My Floor Systems is a Tier 2 feature
+                </div>
+                <button type="button" style={S.btn} onClick={() => goToPlans("floor-systems")}>
+                  Upgrade to Tier 2
+                </button>
+              </div>
+            ) : (
+              <MyFloorSystems
+                styles={S}
+                session={session}
+                userProfile={userProfile}
+              />
+            )}
+            <div style={{ marginTop: 14 }}>
+              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={goNewJobQuote}>
+                NEW JOB QUOTE
+              </button>
+            </div>
+          </>
+        )}
+
+        {currentUser && phase === "customer-quotes" && (
+          <>
+            <div style={S.sectionHeadGold}>Customer Quotes</div>
+            <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.08)" }}>
+              <div style={{ fontSize: 13, color: "#f5d676", fontWeight: 900, marginBottom: 6 }}>Coming soon</div>
+              <div style={{ fontSize: 11, color: "#d2def1", lineHeight: 1.55 }}>
+                Send customized client estimates with your branding. This Tier 2 Estimator feature is next on the roadmap.
+              </div>
+              <button type="button" style={{ ...S.btnSm, marginTop: 12 }} onClick={goNewJobQuote}>
+                NEW JOB QUOTE
+              </button>
+            </div>
+          </>
+        )}
+
         {currentUser && phase === "plans" && (
           <>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
@@ -5313,18 +5656,18 @@ export default function App() {
                   Upgrade to Tier 1 — $49/mo
                 </button>
               </div>
-              <div style={{ ...S.card, border: "1px solid #113a72", opacity: 0.6 }}>
-                <div style={{ fontSize: 16, color: "#9bb2d1", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Tier 2 (Coming Soon)</div>
-                <ul style={{ margin: "8px 0 12px 16px", color: "#9bb2d1", fontSize: 11, lineHeight: 1.5 }}>
+              <div style={{ ...S.card, border: "1px solid #113a72" }}>
+                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Tier 2 ($149/mo)</div>
+                <ul style={{ margin: "8px 0 12px 16px", color: "#d2def1", fontSize: 11, lineHeight: 1.5 }}>
                   <li>Everything in Tier 1</li>
-                  <li>Customer-facing branded estimates</li>
+                  <li>My Floor Systems — build &amp; reuse custom systems</li>
+                  <li>Vendor POs to any supplier</li>
+                  <li>Customer-facing branded estimates (coming soon)</li>
                   <li>Logo upload + brand colors</li>
-                  <li>White label app experience</li>
-                  <li>Custom system builder (up to 6 components)</li>
-                  <li>Full job lifecycle management</li>
+                  <li>Unlimited POs / year</li>
                 </ul>
-                <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => window.alert("Stripe integration coming soon.")}>
-                  Upgrade to Tier 2 — Coming Soon
+                <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => chooseMembershipPlan("tier2")}>
+                  Upgrade to Tier 2 — $149/mo
                 </button>
               </div>
             </div>

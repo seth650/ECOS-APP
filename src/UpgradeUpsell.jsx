@@ -1,5 +1,39 @@
+import { useState } from "react";
+
+const MATERIAL_ORDER_SNOOZE_KEY = "ecos_upsell_material_order_snooze_until";
+const SNOOZE_DAYS = 14;
+
+function readSnoozeUntil() {
+  try {
+    const raw = window.localStorage.getItem(MATERIAL_ORDER_SNOOZE_KEY);
+    if (!raw) return 0;
+    const ts = Number(raw);
+    return Number.isFinite(ts) ? ts : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function isMaterialOrderSnoozed() {
+  return Date.now() < readSnoozeUntil();
+}
+
+function snoozeMaterialOrderUpsell() {
+  const until = Date.now() + SNOOZE_DAYS * 24 * 60 * 60 * 1000;
+  try {
+    window.localStorage.setItem(MATERIAL_ORDER_SNOOZE_KEY, String(until));
+  } catch {
+    /* ignore quota / private mode */
+  }
+  return until;
+}
+
 /** Subtle navy/red upgrade prompts — Amazon-style, not aggressive. */
 export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
+  const [snoozed, setSnoozed] = useState(() =>
+    variant === "material-order" ? isMaterialOrderSnoozed() : false
+  );
+
   const cardBase = {
     borderRadius: 8,
     padding: "12px 14px",
@@ -65,15 +99,35 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
   }
 
   if (variant === "material-order") {
+    if (snoozed) return null;
     return (
       <div style={{ ...cardBase, marginBottom: 14 }}>
         <div style={{ ...titleStyle, fontSize: 11, color: "#9bb2d1", marginBottom: 4 }}>Pro tip</div>
         <div style={bodyStyle}>
           Tier 2+ can name custom systems + generate vendor POs — you've already saved yourself $149 at least this month putting together orders!
         </div>
-        <button type="button" style={ctaBtn} onClick={onUpgrade}>
-          → Upgrade now
-        </button>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <button type="button" style={ctaBtn} onClick={onUpgrade}>
+            → Upgrade now
+          </button>
+          <button
+            type="button"
+            style={{
+              ...btnSmStyle,
+              borderColor: "#113a72",
+              color: "#9bb2d1",
+              fontSize: 11,
+              marginTop: 2,
+              background: "transparent",
+            }}
+            onClick={() => {
+              snoozeMaterialOrderUpsell();
+              setSnoozed(true);
+            }}
+          >
+            Remind me in 14 days
+          </button>
+        </div>
       </div>
     );
   }

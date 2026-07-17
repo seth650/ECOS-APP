@@ -86,5 +86,6 @@ export function getPoCounterLabel(status) {
 }
 
 export function getMaxJobsForMembershipTier(tier = "free") {
+  if (tier === "tier2") return MAX_TIER1_JOBS;
   return tier === "tier1" ? MAX_TIER1_JOBS : MAX_FREE_JOBS;
 }
