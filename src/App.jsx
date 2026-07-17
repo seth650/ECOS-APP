@@ -25,6 +25,8 @@ import {
   isCustomSystemKey,
   toCalculatorSystem,
   ensureDefaultFgpVendor,
+  cleanupDuplicateVendors,
+  dedupeVendorsByEmail,
 } from "./customFloorSystems.js";
 import { buildVendorPoText, openVendorPoPrint } from "./vendorPoPrint.js";
 
@@ -1393,10 +1395,13 @@ export default function App() {
       await ensureDefaultFgpVendor(supabase, uid);
       const [sysRes, vendRes] = await Promise.all([
         supabase.from("custom_floor_systems").select("*").eq("user_id", uid).order("updated_at", { ascending: false }),
-        supabase.from("contractor_vendors").select("*").eq("user_id", uid).order("name"),
+        supabase.from("contractor_vendors").select("*").eq("user_id", uid).order("created_at", { ascending: true }),
       ]);
       if (!sysRes.error) setCustomFloorSystems(sysRes.data || []);
-      if (!vendRes.error) setContractorVendors(vendRes.data || []);
+      if (!vendRes.error) {
+        const cleaned = await cleanupDuplicateVendors(supabase, uid, vendRes.data || []);
+        setContractorVendors(cleaned);
+      }
     } catch (e) {
       console.warn("[ECOS] loadCustomFloorData", e);
     }
@@ -2862,8 +2867,14 @@ export default function App() {
 
   async function emailVendorPoForGroup(group) {
     const draft = submittedDraft;
-    if (!draft || !group?.vendorEmail) {
-      window.alert("This vendor group has no email. Add a vendor email in My Floor Systems → Vendors.");
+    if (!draft) {
+      setVendorPoStatus("No order draft found — submit the quote first.");
+      return;
+    }
+    if (!group?.vendorEmail) {
+      const msg = "This vendor has no email. Add one in My Floor Systems → Vendors.";
+      setVendorPoStatus(msg);
+      window.alert(msg);
       return;
     }
     const contractorDisplay =
@@ -2871,10 +2882,11 @@ export default function App() {
       userProfile?.company_name ||
       currentUser ||
       "Contractor";
-    const subject = `PO — ${userProfile?.company_name || contractorDisplay}`;
+    const company = userProfile?.company_name || contractorDisplay;
+    const subject = `PO — ${company}`;
     const body = buildVendorPoText({
       contractorName: contractorDisplay,
-      companyName: userProfile?.company_name || contractorDisplay,
+      companyName: company,
       vendorName: group.vendorName,
       vendorEmail: group.vendorEmail,
       jobName: draft.jobNamePo,
@@ -2884,10 +2896,18 @@ export default function App() {
       lines: group.lines,
     });
     setVendorPoSending(true);
-    setVendorPoStatus("");
+    setVendorPoStatus(`Sending PO to ${group.vendorName || group.vendorEmail}…`);
     try {
-      const accessToken = session?.access_token;
+      const { data: authData } = await supabase.auth.getSession();
+      const accessToken = authData?.session?.access_token || session?.access_token;
       if (!accessToken) throw new Error("Session expired — log in again.");
+
+      console.info("[ECOS vendor-po] sending", {
+        vendorEmail: group.vendorEmail,
+        orderId: draft.orderId || null,
+        lines: group.lines?.length || 0,
+      });
+
       const res = await fetch("/api/send-vendor-po", {
         method: "POST",
         headers: {
@@ -2900,12 +2920,17 @@ export default function App() {
           body,
           vendorName: group.vendorName,
           vendorEmail: group.vendorEmail,
-          contractorName: userProfile?.company_name || contractorDisplay,
+          contractorName: company,
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Could not email vendor PO.");
+      console.info("[ECOS vendor-po] response", { status: res.status, json });
+      if (!res.ok) throw new Error(json?.error || `Could not email vendor PO (${res.status}).`);
+
       const sentAt = json.vendor_po_sent_at || new Date().toISOString();
+      const confirmMsg =
+        json.message || `Email sent to ${group.vendorName || group.vendorEmail} on ${new Date(sentAt).toLocaleString()}`;
+
       setSubmittedDraft((prev) =>
         prev
           ? {
@@ -2916,9 +2941,29 @@ export default function App() {
             }
           : prev
       );
-      setVendorPoStatus(json.message || `Order sent to ${group.vendorName} on ${new Date(sentAt).toLocaleString()}`);
+      setVendorPoStatus(confirmMsg);
+      showAppSuccessToast(`✅ ${confirmMsg}`);
+
+      if (draft.orderId) {
+        setPoHistory((prev) =>
+          prev.map((o) =>
+            o.id === draft.orderId
+              ? {
+                  ...o,
+                  vendor_po_sent_at: sentAt,
+                  vendor_name: group.vendorName,
+                  vendor_email: group.vendorEmail,
+                  is_custom_system: true,
+                }
+              : o
+          )
+        );
+      }
     } catch (e) {
-      setVendorPoStatus(e?.message || "Vendor email failed.");
+      console.error("[ECOS vendor-po] failed", e);
+      const errMsg = e?.message || "Vendor email failed.";
+      setVendorPoStatus(errMsg);
+      window.alert(errMsg);
     } finally {
       setVendorPoSending(false);
     }
@@ -4745,17 +4790,35 @@ export default function App() {
                       </button>
                       <button
                         type="button"
-                        style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }}
-                        disabled={vendorPoSending || !group.vendorEmail}
+                        style={{
+                          ...S.btnSm,
+                          borderColor: "#e33433",
+                          color: "#fff",
+                          opacity: vendorPoSending || !group.vendorEmail ? 0.55 : 1,
+                        }}
+                        disabled={vendorPoSending}
+                        title={!group.vendorEmail ? "Assign a vendor with an email on the system layers first" : "Email PO to vendor"}
                         onClick={() => void emailVendorPoForGroup(group)}
                       >
                         {vendorPoSending ? "Sending…" : "Email to vendor"}
                       </button>
                     </div>
+                    {!group.vendorEmail && (
+                      <div style={{ fontSize: 10, color: "#f5d676", marginTop: 6 }}>
+                        No vendor email on these layers — edit the system in My Floor Systems and assign a vendor.
+                      </div>
+                    )}
                   </div>
                 ))}
                 {vendorPoStatus && (
-                  <div style={{ marginTop: 10, fontSize: 11, color: /sent/i.test(vendorPoStatus) ? "#86efac" : "#fca5a5" }}>
+                  <div
+                    style={{
+                      marginTop: 10,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: /sent|email sent/i.test(vendorPoStatus) ? "#86efac" : /sending/i.test(vendorPoStatus) ? "#f5d676" : "#fca5a5",
+                    }}
+                  >
                     {vendorPoStatus}
                   </div>
                 )}

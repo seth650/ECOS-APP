@@ -20,3 +20,7 @@ comment on column public.custom_floor_systems.location is 'indoor | outdoor';
 comment on column public.custom_floor_systems.system_type is 'flake | solid | solid_texture | metallic | quartz | grind_seal';
 comment on column public.custom_floor_systems.diagram_status is 'pending | ready | null';
 comment on column public.custom_floor_systems.cutaway_url is 'Supabase storage URL for custom cutaway PNG';
+
+-- Prevent future duplicate vendors per contractor email
+create unique index if not exists contractor_vendors_user_email_uidx
+  on public.contractor_vendors (user_id, lower(email));

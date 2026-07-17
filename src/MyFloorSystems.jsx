@@ -12,6 +12,7 @@ import {
   ECOS_PIGMENT_COLORS,
   needsColorField,
   ensureDefaultFgpVendor,
+  cleanupDuplicateVendors,
 } from "./customFloorSystems.js";
 
 const DIAGRAM_NOTE =
@@ -96,14 +97,14 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
       await ensureDefaultFgpVendor(supabase, userId);
       const [sysRes, vendRes] = await Promise.all([
         supabase.from("custom_floor_systems").select("*").eq("user_id", userId).order("updated_at", { ascending: false }),
-        supabase.from("contractor_vendors").select("*").eq("user_id", userId).order("name"),
+        supabase.from("contractor_vendors").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
       ]);
       if (sysRes.error) throw sysRes.error;
       if (vendRes.error) throw vendRes.error;
       const nextSystems = sysRes.data || [];
-      const nextVendors = vendRes.data || [];
+      const cleanedVendors = await cleanupDuplicateVendors(supabase, userId, vendRes.data || []);
       setSystems(nextSystems);
-      setVendors(nextVendors);
+      setVendors(cleanedVendors);
       onSystemsChangedRef.current?.(nextSystems);
     } catch (e) {
       setError(
@@ -785,16 +786,21 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
                         {(sys.layers || []).length} layer(s)
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button type="button" style={S.btnSm} onClick={() => startEdit(sys)}>
-                        Edit
-                      </button>
-                      <button type="button" style={S.btnSm} onClick={() => setDiagramSystem(sys)}>
-                        Submit for Custom Diagram
-                      </button>
-                      <button type="button" style={{ ...S.btnSm, borderColor: "#e33433" }} onClick={() => void deleteSystem(sys.id)}>
-                        Delete
-                      </button>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", maxWidth: 220 }}>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <button type="button" style={S.btnSm} onClick={() => startEdit(sys)}>
+                          Edit
+                        </button>
+                        <button type="button" style={S.btnSm} onClick={() => setDiagramSystem(sys)}>
+                          Submit for Custom Diagram
+                        </button>
+                        <button type="button" style={{ ...S.btnSm, borderColor: "#e33433" }} onClick={() => void deleteSystem(sys.id)}>
+                          Delete
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 10, color: "#9bb2d1", fontWeight: 400, lineHeight: 1.4, textAlign: "right" }}>
+                        Epoxy Twins can create a professional 3D cutaway for your system for $49. Processing time: 5–7 business days.
+                      </div>
                     </div>
                   </div>
                 </div>

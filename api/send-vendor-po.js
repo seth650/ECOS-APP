@@ -54,10 +54,14 @@ export default async function handler(req, res) {
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(vendorEmail).trim());
   if (!emailOk) return res.status(400).json({ error: "Invalid vendor email." });
 
-  const fromName = String(contractorName || "ECOS Contractor").slice(0, 80);
+  const fromName = String(contractorName || "ECOS Contractor")
+    .replace(/[<>\r\n"]/g, "")
+    .trim()
+    .slice(0, 60) || "ECOS Contractor";
   const to = String(vendorEmail).trim();
 
   try {
+    console.info("[send-vendor-po] request", { to, fromName, orderId: orderId || null, subjectLen: String(subject).length });
     const upstream = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -67,12 +71,14 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         from: `${fromName} via ECOS <Rufus@epoxyquoting.com>`,
         to: [to],
+        reply_to: to,
         subject: String(subject).slice(0, 200),
         text: body,
       }),
     });
 
     const json = await upstream.json().catch(() => ({}));
+    console.info("[send-vendor-po] resend", { status: upstream.status, id: json?.id, message: json?.message });
     if (!upstream.ok) {
       return res.status(upstream.status).json({ error: json?.message || "Email provider rejected request." });
     }

@@ -284,25 +284,6 @@ export function buildCustomOrderLines(layers, tierMult = 1) {
   return lines;
 }
 
-export function groupLinesByVendor(lines, vendors = []) {
-  const byId = Object.fromEntries((vendors || []).map((v) => [v.id, v]));
-  const groups = new Map();
-  for (const line of lines || []) {
-    const vid = line.vendorId || "";
-    if (!groups.has(vid)) {
-      const v = byId[vid];
-      groups.set(vid, {
-        vendorId: vid,
-        vendorName: v?.name || (vid ? "Unknown vendor" : "No vendor assigned"),
-        vendorEmail: v?.email || "",
-        lines: [],
-      });
-    }
-    groups.get(vid).lines.push(line);
-  }
-  return [...groups.values()];
-}
-
 /**
  * Flatten unique custom layers into Manual PO catalog products.
  * Keyed by stable layer id when present.
@@ -348,28 +329,170 @@ export function buildCustomLayerProducts(systems = []) {
   return products;
 }
 
-/** Ensure FGP Midwest exists in contractor_vendors for this user. */
+/** Deduplicate vendors by email (case-insensitive), preferring earliest created. */
+export function dedupeVendorsByEmail(vendors = []) {
+  const seen = new Map();
+  const sorted = [...(vendors || [])].sort((a, b) => {
+    const ta = new Date(a.created_at || 0).getTime();
+    const tb = new Date(b.created_at || 0).getTime();
+    return ta - tb;
+  });
+  for (const v of sorted) {
+    const key = String(v.email || "").trim().toLowerCase();
+    if (!key) {
+      seen.set(`id:${v.id}`, v);
+      continue;
+    }
+    if (!seen.has(key)) seen.set(key, v);
+  }
+  return [...seen.values()].sort((a, b) =>
+    String(a.name || "").localeCompare(String(b.name || ""))
+  );
+}
+
+const fgpEnsureLocks = new Map();
+
+/**
+ * Ensure FGP Midwest exists once per contractor.
+ * Uses limit(1) (not maybeSingle) so duplicate rows don't look like "missing".
+ * Concurrent calls for the same user share one in-flight promise.
+ */
 export async function ensureDefaultFgpVendor(supabase, userId) {
   if (!userId || !supabase) return null;
-  const { data: existing } = await supabase
-    .from("contractor_vendors")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("email", DEFAULT_FGP_VENDOR.email)
-    .maybeSingle();
-  if (existing?.id) return existing;
-  const { data, error } = await supabase
-    .from("contractor_vendors")
-    .insert({
-      user_id: userId,
-      name: DEFAULT_FGP_VENDOR.name,
-      email: DEFAULT_FGP_VENDOR.email,
-    })
-    .select()
-    .maybeSingle();
-  if (error) {
-    console.warn("[ECOS] ensureDefaultFgpVendor", error);
-    return null;
+  if (fgpEnsureLocks.has(userId)) return fgpEnsureLocks.get(userId);
+
+  const job = (async () => {
+    try {
+      const { data: rows, error: selErr } = await supabase
+        .from("contractor_vendors")
+        .select("id, name, email, created_at")
+        .eq("user_id", userId)
+        .ilike("email", DEFAULT_FGP_VENDOR.email)
+        .order("created_at", { ascending: true })
+        .limit(5);
+
+      if (selErr) {
+        console.warn("[ECOS] ensureDefaultFgpVendor select", selErr);
+      }
+
+      const existing = Array.isArray(rows) ? rows : [];
+      if (existing.length > 0) {
+        // Soft-clean extras so dropdown stops growing.
+        const keepId = existing[0].id;
+        const extraIds = existing.slice(1).map((r) => r.id).filter(Boolean);
+        if (extraIds.length) {
+          await supabase
+            .from("contractor_vendors")
+            .delete()
+            .eq("user_id", userId)
+            .in("id", extraIds);
+        }
+        return existing[0];
+      }
+
+      const { data, error } = await supabase
+        .from("contractor_vendors")
+        .insert({
+          user_id: userId,
+          name: DEFAULT_FGP_VENDOR.name,
+          email: DEFAULT_FGP_VENDOR.email,
+        })
+        .select()
+        .maybeSingle();
+
+      // Unique-violation race: another insert won — re-read.
+      if (error) {
+        console.warn("[ECOS] ensureDefaultFgpVendor insert", error);
+        const { data: again } = await supabase
+          .from("contractor_vendors")
+          .select("id, name, email")
+          .eq("user_id", userId)
+          .ilike("email", DEFAULT_FGP_VENDOR.email)
+          .order("created_at", { ascending: true })
+          .limit(1);
+        return again?.[0] || null;
+      }
+      return data;
+    } finally {
+      fgpEnsureLocks.delete(userId);
+    }
+  })();
+
+  fgpEnsureLocks.set(userId, job);
+  return job;
+}
+
+/** Delete duplicate vendor rows for a user (same email), keep oldest. Remap layer vendorIds. */
+export async function cleanupDuplicateVendors(supabase, userId, vendors = []) {
+  if (!userId || !supabase) return dedupeVendorsByEmail(vendors || []);
+  const byEmail = new Map();
+  for (const v of vendors || []) {
+    const key = String(v.email || "").trim().toLowerCase();
+    if (!key) continue;
+    if (!byEmail.has(key)) byEmail.set(key, []);
+    byEmail.get(key).push(v);
   }
-  return data;
+  const deleteIds = [];
+  const idRemap = new Map();
+  for (const list of byEmail.values()) {
+    if (list.length < 2) continue;
+    const sorted = [...list].sort(
+      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    );
+    const keepId = sorted[0].id;
+    for (const extra of sorted.slice(1)) {
+      if (extra.id) {
+        deleteIds.push(extra.id);
+        idRemap.set(extra.id, keepId);
+      }
+    }
+  }
+  if (deleteIds.length) {
+    if (idRemap.size) {
+      const { data: systems } = await supabase
+        .from("custom_floor_systems")
+        .select("id, layers")
+        .eq("user_id", userId);
+      for (const sys of systems || []) {
+        let changed = false;
+        const layers = (sys.layers || []).map((l) => {
+          if (l.vendorId && idRemap.has(l.vendorId)) {
+            changed = true;
+            return { ...l, vendorId: idRemap.get(l.vendorId) };
+          }
+          return l;
+        });
+        if (changed) {
+          await supabase.from("custom_floor_systems").update({ layers }).eq("id", sys.id).eq("user_id", userId);
+        }
+      }
+    }
+    await supabase.from("contractor_vendors").delete().eq("user_id", userId).in("id", deleteIds);
+  }
+  return dedupeVendorsByEmail((vendors || []).filter((v) => !deleteIds.includes(v.id)));
+}
+
+export function groupLinesByVendor(lines, vendors = []) {
+  const uniqueVendors = dedupeVendorsByEmail(vendors);
+  const byId = Object.fromEntries(uniqueVendors.map((v) => [v.id, v]));
+  const groups = new Map();
+  for (const line of lines || []) {
+    let vid = line.vendorId || "";
+    let v = byId[vid];
+    // Orphaned id after dedupe — fall back to FGP Midwest if present.
+    if (vid && !v) {
+      v = uniqueVendors.find((x) => String(x.email || "").toLowerCase() === DEFAULT_FGP_VENDOR.email.toLowerCase());
+      vid = v?.id || vid;
+    }
+    if (!groups.has(vid)) {
+      groups.set(vid, {
+        vendorId: vid,
+        vendorName: v?.name || (vid ? "Unknown vendor" : "No vendor assigned"),
+        vendorEmail: v?.email || "",
+        lines: [],
+      });
+    }
+    groups.get(vid).lines.push(line);
+  }
+  return [...groups.values()];
 }
