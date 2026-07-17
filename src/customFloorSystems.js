@@ -1,6 +1,106 @@
 /** Custom floor system helpers — coverage math + calculator adapters. */
 
 export const CUSTOM_SYSTEM_PREFIX = "CUSTOM-";
+export const CUSTOM_LAYER_PRODUCT_PREFIX = "custom_layer_";
+
+export const SYSTEM_LOCATIONS = [
+  { id: "indoor", label: "Indoor" },
+  { id: "outdoor", label: "Outdoor" },
+];
+
+export const SYSTEM_TYPES = [
+  { id: "flake", label: "Flake" },
+  { id: "solid", label: "Solid Color" },
+  { id: "solid_texture", label: "Solid+Texture/Grip" },
+  { id: "metallic", label: "Metallic" },
+  { id: "quartz", label: "Quartz" },
+  { id: "grind_seal", label: "Grind & Seal" },
+];
+
+export const LAYER_TYPES = [
+  { id: "liquid", label: "Liquid" },
+  { id: "broadcast", label: "Broadcast Media" },
+  { id: "pigment", label: "Pigments" },
+];
+
+export const DEFAULT_FGP_VENDOR = {
+  name: "FGP Midwest",
+  email: "orders@fgpmidwest.com",
+};
+
+/** Broadcast / flake style colors from ECOS stock. */
+export const ECOS_BROADCAST_COLORS = [
+  "Creekbed",
+  "Yorkshire",
+  "Gravel",
+  "Domino",
+  "Nightfall",
+  "Tidal Wave",
+  "Shoreline",
+  "Cabin Fever",
+  "Woodland",
+  "Custom Flake Blend",
+];
+
+/** Pigment / solid / metallic color options. */
+export const ECOS_PIGMENT_COLORS = [
+  "Black",
+  "Metal Gray",
+  "Medium Gray",
+  "Sable Gray",
+  "Tile Brown",
+  "Mocha",
+  "Tan",
+  "Dover Beige",
+  "Ford Blue",
+  "Safety Red",
+  "Safety Yellow",
+  "White",
+  "Americana",
+  "Avocado",
+  "Azure",
+  "Bamboo",
+  "Banana",
+  "Bikini",
+  "Cabana",
+  "Cannon",
+  "Caribbean",
+  "Caviar",
+  "Coral",
+  "Curacao",
+  "Daydream",
+  "Dolphin",
+  "Driftwood",
+  "Ginger",
+  "Great White",
+  "Guava",
+  "Hammock",
+  "Kona",
+  "Lager",
+  "Manatee",
+  "Mandarin",
+  "Mango",
+  "Margarita",
+  "Maui",
+  "Ocean",
+  "Overcast",
+  "Palapa",
+  "Palm",
+  "Papaya",
+  "Pearl",
+  "Pier",
+  "Reef",
+  "Rum",
+  "Sandal",
+  "Sandbar",
+  "Sangria",
+  "Seaweed",
+  "Shipwreck",
+  "Starfish",
+  "Sunset",
+  "Tiki",
+  "Whale",
+];
 
 export function customSystemKey(id) {
   return `${CUSTOM_SYSTEM_PREFIX}${id}`;
@@ -15,11 +115,18 @@ export function parseCustomSystemId(key) {
   return key.slice(CUSTOM_SYSTEM_PREFIX.length);
 }
 
+export function suggestSystemName(firstName) {
+  const n = String(firstName || "").trim();
+  return n ? `${n}'s Premium Metallic` : "My Premium Metallic";
+}
+
 export function emptyLayer() {
   return {
     id: `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: "",
-    type: "liquid", // liquid | broadcast
+    type: "liquid", // liquid | broadcast | pigment
+    colorName: "",
+    colorCustom: false,
     coverageRate: "",
     kitSize: "",
     unitType: "gallons", // gallons | lbs
@@ -47,45 +154,78 @@ export function syncLayerPrices(layer, changedField) {
   return next;
 }
 
-export function validateLayer(layer) {
+export function needsColorField(type) {
+  return type === "broadcast" || type === "pigment";
+}
+
+export function validateLayer(layer, index = 0) {
   const errors = [];
   if (!String(layer.name || "").trim()) errors.push("Layer name required");
   if (!(Number(layer.coverageRate) > 0)) errors.push("Coverage rate required");
   if (!(Number(layer.kitSize) > 0)) errors.push("Kit size required");
   if (!(Number(layer.pricePerKit) >= 0)) errors.push("Price per kit required");
   if (layer.unitType !== "gallons" && layer.unitType !== "lbs") errors.push("Unit type required");
-  return errors;
-}
-
-export function validateSystem(name, layers) {
-  const errors = [];
-  if (!String(name || "").trim()) errors.push("System name required");
-  if (!Array.isArray(layers) || layers.length === 0) errors.push("Add at least one layer");
-  (layers || []).forEach((l, i) => {
-    validateLayer(l).forEach((e) => errors.push(`Layer ${i + 1}: ${e}`));
-  });
+  if (needsColorField(layer.type) && !String(layer.colorName || "").trim()) {
+    errors.push("Color name required for broadcast media / pigments");
+  }
   return errors;
 }
 
 /**
+ * Validate system metadata + layers.
+ * Min 1 layer (2-layer liquid systems allowed). Broadcast/pigment cannot be first without a prior liquid.
+ */
+export function validateSystem({ name, location, systemType, layers }) {
+  const errors = [];
+  if (!String(name || "").trim()) errors.push("System name required");
+  if (location !== "indoor" && location !== "outdoor") errors.push("Select Indoor or Outdoor");
+  if (!SYSTEM_TYPES.some((t) => t.id === systemType)) errors.push("Select a system type");
+  if (!Array.isArray(layers) || layers.length === 0) errors.push("Add at least one layer");
+
+  const list = layers || [];
+  for (let i = 0; i < list.length; i++) {
+    const l = list[i];
+    if (needsColorField(l.type)) {
+      const hasLiquidBefore = list.slice(0, i).some((x) => x.type === "liquid");
+      if (!hasLiquidBefore) {
+        errors.push("A liquid base coat is required before broadcast media/pigments");
+        break;
+      }
+    }
+  }
+
+  list.forEach((l, i) => {
+    validateLayer(l, i).forEach((e) => errors.push(`Layer ${i + 1}: ${e}`));
+  });
+  return errors;
+}
+
+function typeLabel(type) {
+  if (type === "broadcast") return "Broadcast Media";
+  if (type === "pigment") return "Pigments";
+  return "Liquid";
+}
+
+/**
  * Scale a saved custom system into calculator layer items for buildOrderList.
- * Coverage rate = sq ft per gal OR sq ft per lb (depending on unitType).
  */
 export function customSystemLayersForSqFt(savedSystem, sf) {
   const area = Math.max(0, Number(sf) || 0);
   return (savedSystem?.layers || []).map((layer) => {
     const rate = Number(layer.coverageRate) || 1;
     const needed = area / rate;
+    const colorBit = layer.colorName ? ` · ${layer.colorName}` : "";
     const base = {
       key: "custom_layer",
       custom: true,
       label: layer.name || "Layer",
-      notes: `${layer.type === "broadcast" ? "Broadcast / Additive" : "Liquid"} · ${rate} sq ft/${layer.unitType === "lbs" ? "lb" : "gal"}`,
+      notes: `${typeLabel(layer.type)}${colorBit} · ${rate} sq ft/${layer.unitType === "lbs" ? "lb" : "gal"}`,
       kitSizeNum: Number(layer.kitSize) || 1,
       unitType: layer.unitType === "lbs" ? "lbs" : "gallons",
       pricePerKit: Number(layer.pricePerKit) || 0,
       vendorId: layer.vendorId || "",
       layerType: layer.type || "liquid",
+      colorName: layer.colorName || "",
     };
     if (base.unitType === "lbs") {
       return { ...base, lbs: needed, gals: undefined };
@@ -104,15 +244,14 @@ export function toCalculatorSystem(saved) {
     warnings: [],
     isCustom: true,
     customId: saved.id,
-    cutawayImage: null,
+    location: saved.location || null,
+    systemType: saved.system_type || saved.systemType || null,
+    cutawayImage: saved.cutaway_url || null,
+    diagramStatus: saved.diagram_status || null,
     layers: (sf) => customSystemLayersForSqFt(saved, sf),
   };
 }
 
-/**
- * Build PO lines for custom layers (no PRODUCTS catalog lookup).
- * Applies optional contractor tier multiplier to entered kit prices when requested.
- */
 export function buildCustomOrderLines(layers, tierMult = 1) {
   const lines = [];
   const mult = Number(tierMult) > 0 ? Number(tierMult) : 1;
@@ -128,7 +267,7 @@ export function buildCustomOrderLines(layers, tierMult = 1) {
     const unitLabel = isLbs ? "lbs" : "gal";
     const kitSizeLabel = `${kitSize} ${isLbs ? "lb" : "gal"}`;
     lines.push({
-      product: layer.label,
+      product: layer.colorName ? `${layer.label} — ${layer.colorName}` : layer.label,
       layer: layer.label,
       notes: layer.notes || "",
       kitSize: kitSizeLabel,
@@ -162,4 +301,75 @@ export function groupLinesByVendor(lines, vendors = []) {
     groups.get(vid).lines.push(line);
   }
   return [...groups.values()];
+}
+
+/**
+ * Flatten unique custom layers into Manual PO catalog products.
+ * Keyed by stable layer id when present.
+ */
+export function buildCustomLayerProducts(systems = []) {
+  const products = {};
+  for (const sys of systems || []) {
+    for (const layer of sys.layers || []) {
+      const id = layer.id || `${sys.id}-${layer.name}`;
+      const key = `${CUSTOM_LAYER_PRODUCT_PREFIX}${id}`;
+      if (products[key]) continue;
+      const isLbs = layer.unitType === "lbs";
+      const kitSize = Number(layer.kitSize) || 1;
+      const msrp = Number(layer.pricePerKit) || 0;
+      const colorBit = layer.colorName ? ` — ${layer.colorName}` : "";
+      const category =
+        layer.type === "pigment"
+          ? "custom_pigments"
+          : layer.type === "broadcast"
+            ? "custom_broadcast"
+            : "custom_liquids";
+      products[key] = {
+        name: `${layer.name || "Custom layer"}${colorBit}`,
+        materialCategory: category,
+        pricingModel: layer.type === "liquid" ? undefined : "accessory",
+        kits: [
+          {
+            size: `${kitSize} ${isLbs ? "lb" : "gal"}`,
+            msrp,
+            tierPrices: {
+              small: +(msrp * 0.95).toFixed(2),
+              tier2: +(msrp * 0.9).toFixed(2),
+              preferred: +(msrp * 0.85).toFixed(2),
+            },
+            ...(isLbs ? { lbs: kitSize } : { gals: kitSize }),
+          },
+        ],
+        _fromCustomSystem: sys.name,
+        _vendorId: layer.vendorId || "",
+      };
+    }
+  }
+  return products;
+}
+
+/** Ensure FGP Midwest exists in contractor_vendors for this user. */
+export async function ensureDefaultFgpVendor(supabase, userId) {
+  if (!userId || !supabase) return null;
+  const { data: existing } = await supabase
+    .from("contractor_vendors")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("email", DEFAULT_FGP_VENDOR.email)
+    .maybeSingle();
+  if (existing?.id) return existing;
+  const { data, error } = await supabase
+    .from("contractor_vendors")
+    .insert({
+      user_id: userId,
+      name: DEFAULT_FGP_VENDOR.name,
+      email: DEFAULT_FGP_VENDOR.email,
+    })
+    .select()
+    .maybeSingle();
+  if (error) {
+    console.warn("[ECOS] ensureDefaultFgpVendor", error);
+    return null;
+  }
+  return data;
 }

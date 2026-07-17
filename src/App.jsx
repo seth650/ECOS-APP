@@ -24,6 +24,7 @@ import {
   groupLinesByVendor,
   isCustomSystemKey,
   toCalculatorSystem,
+  ensureDefaultFgpVendor,
 } from "./customFloorSystems.js";
 import { buildVendorPoText, openVendorPoPrint } from "./vendorPoPrint.js";
 
@@ -1283,6 +1284,7 @@ export default function App() {
   const [contractorVendors, setContractorVendors] = useState([]);
   const [vendorPoStatus, setVendorPoStatus] = useState(""); // confirmation after email
   const [vendorPoSending, setVendorPoSending] = useState(false);
+  const [viewingOrder, setViewingOrder] = useState(null);
   const [orderJobs, setOrderJobs] = useState([]);
   const [session, setSession] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
@@ -1388,6 +1390,7 @@ export default function App() {
       return;
     }
     try {
+      await ensureDefaultFgpVendor(supabase, uid);
       const [sysRes, vendRes] = await Promise.all([
         supabase.from("custom_floor_systems").select("*").eq("user_id", uid).order("updated_at", { ascending: false }),
         supabase.from("contractor_vendors").select("*").eq("user_id", uid).order("name"),
@@ -1606,6 +1609,11 @@ export default function App() {
       throw error;
     }
     setUserProfile(normalizeUserProfile(data || seed));
+    try {
+      await ensureDefaultFgpVendor(supabase, activeSession.user.id);
+    } catch (e) {
+      console.warn("[ECOS] FGP vendor seed skipped", e);
+    }
     return data;
   }
 
@@ -2885,7 +2893,16 @@ export default function App() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Could not email vendor PO.");
       const sentAt = json.vendor_po_sent_at || new Date().toISOString();
-      setSubmittedDraft((prev) => (prev ? { ...prev, vendorPoSentAt: sentAt } : prev));
+      setSubmittedDraft((prev) =>
+        prev
+          ? {
+              ...prev,
+              vendorPoSentAt: sentAt,
+              vendorName: group.vendorName,
+              vendorEmail: group.vendorEmail,
+            }
+          : prev
+      );
       setVendorPoStatus(json.message || `Order sent to ${group.vendorName} on ${new Date(sentAt).toLocaleString()}`);
     } catch (e) {
       setVendorPoStatus(e?.message || "Vendor email failed.");
@@ -4053,7 +4070,7 @@ export default function App() {
                   <div style={S.card}>
                     {otherLocationSystems.map((key) => {
                       const isReleaseSystem = ACTIVE_RELEASE_SYSTEMS.has(key);
-                      const isLocked = !isReleaseSystem || (isFreePlan && !FREE_UNLOCKED_SYSTEMS.has(key));
+                      const isLocked = isFreePlan && !FREE_UNLOCKED_SYSTEMS.has(key);
                       const benchmarkPerSqFt = getSystemMaterialBenchmarkPerSqFt(
                         key,
                         contractorPricingTierKey,
@@ -4099,18 +4116,14 @@ export default function App() {
                     })}
                   </div>
                 )}
-                {(() => {
-                  const isTier2 = membershipTier === "tier2";
+                {membershipTier !== "tier2" && (() => {
                   const isTier1 = membershipTier === "tier1";
                   const canUpgrade = membershipTier === "free";
                   return (
                     <button
                       type="button"
                       onClick={() => {
-                        if (isTier2) {
-                          setPhase("floor-systems");
-                          void loadCustomFloorData(session);
-                        } else if (canUpgrade) goToPlans("questions");
+                        if (canUpgrade) goToPlans("questions");
                       }}
                       disabled={isTier1}
                       style={{
@@ -4123,19 +4136,17 @@ export default function App() {
                         borderRadius: 8,
                         padding: "12px 12px",
                         cursor: isTier1 ? "not-allowed" : "pointer",
-                        opacity: isTier1 ? 0.45 : isTier2 ? 0.9 : 0.9,
+                        opacity: isTier1 ? 0.45 : 0.9,
                         filter: isTier1 ? "grayscale(0.35)" : "none",
                       }}
                     >
                       <div style={{ fontSize: 12, color: isTier1 ? "#9ca3af" : "#d1d5db", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, lineHeight: 1.4 }}>
                         Don't like our systems? Build your own in Tier 2 — Upgrade to unlock custom system builder
                       </div>
-                      <div style={{ fontSize: 10, color: canUpgrade || isTier2 ? "#f5d676" : "#9ca3af", marginTop: 4 }}>
-                        {isTier2
-                          ? "Open My Floor Systems →"
-                          : isTier1
-                            ? "🔒 Locked on Tier 1 — upgrade to Tier 2 to unlock"
-                            : "Tap to view Tier 2 upgrade options →"}
+                      <div style={{ fontSize: 10, color: canUpgrade ? "#f5d676" : "#9ca3af", marginTop: 4 }}>
+                        {isTier1
+                          ? "🔒 Locked on Tier 1 — upgrade to Tier 2 to unlock"
+                          : "Tap to view Tier 2 upgrade options →"}
                       </div>
                     </button>
                   );
@@ -4737,7 +4748,7 @@ export default function App() {
                 )}
                 {submittedDraft.vendorPoSentAt && (
                   <div style={{ marginTop: 8, fontSize: 11, color: "#86efac" }}>
-                    Order sent on {new Date(submittedDraft.vendorPoSentAt).toLocaleString()}
+                    PO sent to vendor on {new Date(submittedDraft.vendorPoSentAt).toLocaleString()}
                   </div>
                 )}
               </div>
@@ -4752,6 +4763,31 @@ export default function App() {
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button
+                type="button"
+                style={{ ...S.btnSm, width: "100%", borderColor: "#9bb2d1" }}
+                onClick={() =>
+                  setViewingOrder({
+                    id: submittedDraft.orderId,
+                    job_name: submittedDraft.jobNamePo,
+                    address: submittedDraft.address,
+                    system_code: submittedDraft.systemCode,
+                    system_label: submittedDraft.systemLabel,
+                    sq_footage: submittedDraft.sqFt,
+                    total_cost: submittedDraft.totalTier,
+                    order_lines: submittedDraft.combinedOrderLines,
+                    is_custom_system: submittedDraft.isCustom,
+                    vendor_po_sent_at: submittedDraft.vendorPoSentAt,
+                    vendor_name: submittedDraft.vendorName,
+                    created_at: new Date().toISOString(),
+                  })
+                }
+              >
+                View Order
+              </button>
+              <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setPhase("orders")}>
+                My Orders
+              </button>
               <button type="button" style={{ ...S.btn, background: "#e33433", marginTop: 0 }} onClick={reset}>
                 Start a New Order
               </button>
@@ -5484,6 +5520,7 @@ export default function App() {
                   userProfile={userProfile}
                   session={session}
                   poUsage={poUsage}
+                  customFloorSystems={customFloorSystems}
                   onUpgrade={() => setPhase("plans")}
                   onSubmitSuccess={showAppSuccessToast}
                   onOrderSaved={async (row, meta) => {
@@ -5533,14 +5570,29 @@ export default function App() {
                           <div>
                             <div style={{ fontSize: 12, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>
                               {o.job_name || o.jobNamePo || "Untitled Job / PO"}
+                              {o.is_custom_system && (
+                                <span style={{ fontSize: 9, color: "#eab308", border: "1px solid #eab308", borderRadius: 4, padding: "1px 5px", marginLeft: 6 }}>
+                                  CUSTOM
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontSize: 10, color: "#9bb2d1" }}>
                               {new Date(o.created_at).toLocaleDateString()} · {o.system_code || o.systemCode || "—"} · {Number(o.sq_footage || o.sqFt || 0).toLocaleString()} ft² · ${Number(o.total_cost || o.totalTier || 0).toFixed(2)}
                             </div>
+                            {o.vendor_po_sent_at && (
+                              <div style={{ fontSize: 10, color: "#86efac", marginTop: 3 }}>
+                                PO sent to {o.vendor_name || "vendor"} on {new Date(o.vendor_po_sent_at).toLocaleString()}
+                              </div>
+                            )}
                           </div>
-                          <button type="button" style={S.btnSm} onClick={() => printJobCard(o)}>
-                            Print Job Card
-                          </button>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            <button type="button" style={S.btnSm} onClick={() => setViewingOrder(o)}>
+                              View Order
+                            </button>
+                            <button type="button" style={S.btnSm} onClick={() => printJobCard(o)}>
+                              Print Job Card
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))
@@ -5572,6 +5624,7 @@ export default function App() {
                 styles={S}
                 session={session}
                 userProfile={userProfile}
+                onSystemsChanged={(list) => setCustomFloorSystems(list || [])}
               />
             )}
             <div style={{ marginTop: 14 }}>
@@ -5580,6 +5633,52 @@ export default function App() {
               </button>
             </div>
           </>
+        )}
+
+        {viewingOrder && (
+          <div style={S.modalOverlay} onClick={() => setViewingOrder(null)}>
+            <div style={{ ...S.modalCard, maxWidth: 560, maxHeight: "85vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontSize: 14, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
+                Order details
+                {viewingOrder.is_custom_system && (
+                  <span style={{ fontSize: 9, color: "#eab308", border: "1px solid #eab308", borderRadius: 4, padding: "1px 5px", marginLeft: 8 }}>
+                    CUSTOM
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: "#d2def1", lineHeight: 1.6, marginBottom: 12 }}>
+                <div><span style={{ color: "#9bb2d1" }}>Job / PO #:</span> {viewingOrder.job_name || "—"}</div>
+                <div><span style={{ color: "#9bb2d1" }}>Address:</span> {viewingOrder.address || "—"}</div>
+                <div><span style={{ color: "#9bb2d1" }}>System:</span> {viewingOrder.system_label || viewingOrder.system_code || "—"}</div>
+                <div><span style={{ color: "#9bb2d1" }}>Sq Ft:</span> {Number(viewingOrder.sq_footage || 0).toLocaleString()} ft²</div>
+                <div><span style={{ color: "#9bb2d1" }}>Total:</span> ${Number(viewingOrder.total_cost || 0).toFixed(2)}</div>
+                {viewingOrder.vendor_po_sent_at && (
+                  <div style={{ color: "#86efac", marginTop: 6 }}>
+                    PO sent to {viewingOrder.vendor_name || "vendor"} on {new Date(viewingOrder.vendor_po_sent_at).toLocaleString()}
+                  </div>
+                )}
+              </div>
+              <div style={{ fontSize: 10, color: "#e33433", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Layers / materials</div>
+              <div style={{ fontSize: 11, color: "#d2def1", lineHeight: 1.5 }}>
+                {(viewingOrder.order_lines || []).length === 0 ? (
+                  <div style={{ color: "#9bb2d1" }}>No line items stored.</div>
+                ) : (
+                  (viewingOrder.order_lines || []).map((line, idx) => (
+                    <div key={idx} style={{ borderBottom: "1px solid #113a72", padding: "6px 0" }}>
+                      <div style={{ color: "#fff", fontWeight: 700 }}>{line.layer || line.product}</div>
+                      <div style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        {line.kitSize} ×{line.qty} · needs {line.totalNeeded || "—"} · ${Number(line.lineTier || line.lineTotal || 0).toFixed(2)}
+                        {line.notes ? ` · ${line.notes}` : ""}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <button type="button" style={{ ...S.btnSm, width: "100%", marginTop: 14 }} onClick={() => setViewingOrder(null)}>
+                Close
+              </button>
+            </div>
+          </div>
         )}
 
         {currentUser && phase === "customer-quotes" && (

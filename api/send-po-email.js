@@ -83,8 +83,19 @@ function tierDisplayLabel(tierKey) {
  * Main products: Small 5% / Tier2 10% / Preferred 15%.
  * Ancillaries: Preferred 5%, else MSRP.
  */
-function discountedUnitPrice(productKey, kitIndex, categoryId, tierKey) {
+function discountedUnitPrice(productKey, kitIndex, categoryId, tierKey, rawFallback = {}) {
   const product = PRODUCTS[productKey];
+  // Custom layers from My Floor Systems — use client snapshot (not in FGP catalog).
+  if (!product && String(productKey || "").startsWith("custom_layer_")) {
+    const msrp = Number(rawFallback.unitMsrp ?? rawFallback.msrpEa ?? 0);
+    const unitPrice = Number(rawFallback.unitPrice ?? rawFallback.tierEa ?? msrp);
+    return {
+      msrp,
+      unitPrice: +unitPrice.toFixed(2),
+      kit: { size: rawFallback.kitSize || "kit", msrp },
+      product: { name: rawFallback.productName || productKey },
+    };
+  }
   const kit = product?.kits?.[kitIndex] || product?.kits?.[0];
   const msrp = Number(kit?.msrp || 0);
 
@@ -114,7 +125,8 @@ function recalculateOrderLines(rawItems, tierKey) {
         raw.productKey,
         kitIndex,
         categoryId,
-        tierKey
+        tierKey,
+        raw
       );
       const lineMsrp = +(msrp * qty).toFixed(2);
       const lineTotal = +(unitPrice * qty).toFixed(2);

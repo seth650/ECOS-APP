@@ -1,5 +1,4 @@
-import { isAncillaryCategory } from "./materialOrderCatalog.js";
-import { PRODUCTS } from "./products.js";
+import { isAncillaryCategory, getMergedProducts } from "./materialOrderCatalog.js";
 
 export const INDIANA_SALES_TAX_RATE = 0.07;
 
@@ -38,10 +37,8 @@ export function getMaterialOrderPricingTierKey(profile = {}) {
     if (fgpUnlocked && (assigned === "tier2" || assigned === "preferred" || assigned === "small")) {
       return assigned === "msrp" ? "small" : assigned;
     }
-    // Tier 1 always gets Small Buyer material discounts (5% off main products).
     return "small";
   }
-  // Free + Testing Mode FGP unlock: apply assigned buying tier so quotes match admin testing.
   if (fgpUnlocked && CONTRACTOR_RANK[assigned] > CONTRACTOR_RANK.msrp) {
     return assigned;
   }
@@ -52,14 +49,16 @@ export function getMaterialOrderTierLabel(tierKey) {
   return MATERIAL_PRICING_TIERS[tierKey]?.label || tierKey;
 }
 
-export function unitMsrpForKit(productKey, kitIndex = 0) {
-  const kit = PRODUCTS[productKey]?.kits?.[kitIndex];
+export function unitMsrpForKit(productKey, kitIndex = 0, customSystems = []) {
+  const catalog = getMergedProducts(customSystems);
+  const kit = catalog[productKey]?.kits?.[kitIndex];
   return Number(kit?.msrp || 0);
 }
 
-export function unitPriceForLine({ productKey, kitIndex, categoryId, tierKey }) {
-  const msrp = unitMsrpForKit(productKey, kitIndex);
-  const kit = PRODUCTS[productKey]?.kits?.[kitIndex] || PRODUCTS[productKey]?.kits?.[0];
+export function unitPriceForLine({ productKey, kitIndex, categoryId, tierKey, customSystems = [] }) {
+  const catalog = getMergedProducts(customSystems);
+  const msrp = unitMsrpForKit(productKey, kitIndex, customSystems);
+  const kit = catalog[productKey]?.kits?.[kitIndex] || catalog[productKey]?.kits?.[0];
   if (kit?.tierPrices && typeof kit.tierPrices[tierKey] === "number") {
     return { msrp, unitPrice: +Number(kit.tierPrices[tierKey]).toFixed(2), mult: null };
   }
@@ -68,11 +67,12 @@ export function unitPriceForLine({ productKey, kitIndex, categoryId, tierKey }) 
   return { msrp, unitPrice: +(msrp * mult).toFixed(2), mult };
 }
 
-export function buildMaterialLine({ productKey, kitIndex, categoryId, categoryLabel, qty, tierKey }) {
+export function buildMaterialLine({ productKey, kitIndex, categoryId, categoryLabel, qty, tierKey, customSystems = [] }) {
+  const catalog = getMergedProducts(customSystems);
   const q = Math.max(1, Math.floor(Number(qty) || 1));
-  const product = PRODUCTS[productKey];
+  const product = catalog[productKey];
   const kit = product?.kits?.[kitIndex] || product?.kits?.[0];
-  const { msrp, unitPrice } = unitPriceForLine({ productKey, kitIndex, categoryId, tierKey });
+  const { msrp, unitPrice } = unitPriceForLine({ productKey, kitIndex, categoryId, tierKey, customSystems });
   const lineMsrp = +(msrp * q).toFixed(2);
   const lineTotal = +(unitPrice * q).toFixed(2);
   const savings = +(lineMsrp - lineTotal).toFixed(2);

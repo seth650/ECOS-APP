@@ -121,3 +121,19 @@ alter table public.orders
 comment on table public.contractor_vendors is 'Tier 2+ contractor vendor contacts for custom system POs';
 comment on table public.custom_floor_systems is 'Tier 2+ reusable custom flooring systems';
 comment on column public.orders.vendor_po_sent_at is 'When vendor PO email was sent via ECOS';
+
+-- v2 columns (safe if already applied)
+alter table public.contractor_vendors
+  add column if not exists phone text;
+
+alter table public.custom_floor_systems
+  add column if not exists location text;
+
+alter table public.custom_floor_systems
+  add column if not exists system_type text;
+
+alter table public.custom_floor_systems
+  add column if not exists diagram_status text;
+
+alter table public.custom_floor_systems
+  add column if not exists cutaway_url text;

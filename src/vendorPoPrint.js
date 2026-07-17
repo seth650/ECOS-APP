@@ -1,6 +1,6 @@
 /**
  * Vendor PO printable HTML — contractor name front & center, ECOS branding in footer.
- * User can Print → Save as PDF.
+ * Download uses a blob URL (no window.open) to avoid pop-up blockers.
  */
 
 function escapeHtml(value) {
@@ -58,7 +58,7 @@ export function buildVendorPoText({
     .join("\n");
 }
 
-export function openVendorPoPrint(payload) {
+function buildVendorPoHtml(payload) {
   const {
     contractorName,
     companyName,
@@ -87,7 +87,7 @@ export function openVendorPoPrint(payload) {
     )
     .join("");
 
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -103,10 +103,16 @@ export function openVendorPoPrint(payload) {
     .total { margin-top: 16px; font-size: 16px; font-weight: 700; }
     .footer { margin-top: 36px; padding-top: 12px; border-top: 2px solid #113a72; font-size: 11px; color: #64748b; }
     .brand { color: #e33433; font-weight: 700; }
-    @media print { body { margin: 16px; } }
+    @media print {
+      body { margin: 16px; }
+      .no-print { display: none !important; }
+    }
   </style>
 </head>
 <body>
+  <div class="no-print" style="margin-bottom:16px;">
+    <button onclick="window.print()" style="padding:8px 14px;font-weight:700;cursor:pointer;">Print / Save as PDF</button>
+  </div>
   <h1>PO — ${escapeHtml(who)}</h1>
   <div class="sub">Order submitted via ECOS by ${escapeHtml(who)}</div>
   <div class="meta">
@@ -134,16 +140,36 @@ export function openVendorPoPrint(payload) {
   <div class="footer">
     <span class="brand">ECOS</span> · An Epoxy Twins Product · epoxyquoting.com
   </div>
-  <script>window.onload = function () { window.print(); };</script>
 </body>
 </html>`;
+}
 
-  const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
-  if (!w) {
-    window.alert("Pop-up blocked — allow pop-ups to download / print the PO PDF.");
-    return;
-  }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
+/**
+ * Open PO via blob URL + same-tab navigation (avoids pop-up blockers).
+ * Falls back to downloading the HTML file if needed.
+ */
+export function openVendorPoPrint(payload) {
+  const html = buildVendorPoHtml(payload);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const who = payload?.companyName || payload?.contractorName || "Contractor";
+  const safeName = String(who).replace(/[^\w\-]+/g, "_").slice(0, 40);
+
+  // Prefer same-tab open via temporary anchor (not blocked as pop-up).
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.download = `PO_${safeName}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  // Revoke after browsers have started the navigation/download.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Alias kept for callers that still import downloadVendorPoPdf. */
+export function downloadVendorPoPdf(payload) {
+  openVendorPoPrint(payload);
 }

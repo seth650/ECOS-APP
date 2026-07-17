@@ -26,12 +26,14 @@ export default function MaterialOrderForm({
   onUpgrade,
   onOrderSaved,
   onSubmitSuccess,
+  customFloorSystems = [],
 }) {
   const tierKey = useMemo(() => getMaterialOrderPricingTierKey(userProfile || {}), [userProfile]);
   const tierLabel = getMaterialOrderTierLabel(tierKey);
   const membershipTier = String(userProfile?.membership_tier || "free").toLowerCase();
   const poCounterLabel = poUsage ? getPoCounterLabel(poUsage) : "";
   const poBlocked = !!poUsage?.atLimit;
+  const customSystems = customFloorSystems;
 
   const [categoryId, setCategoryId] = useState(MATERIAL_CATEGORIES[0].id);
   const [productKey, setProductKey] = useState("");
@@ -75,7 +77,7 @@ export default function MaterialOrderForm({
   }
 
   const category = MATERIAL_CATEGORIES.find((c) => c.id === categoryId);
-  const products = useMemo(() => listCatalogProducts(categoryId), [categoryId]);
+  const products = useMemo(() => listCatalogProducts(categoryId, customSystems), [categoryId, customSystems]);
   const selectedProduct = products.find((p) => p.productKey === productKey);
   const kits = selectedProduct?.kits || [];
 
@@ -94,7 +96,7 @@ export default function MaterialOrderForm({
 
   function onCategoryChange(nextId) {
     setCategoryId(nextId);
-    const nextProducts = listCatalogProducts(nextId);
+    const nextProducts = listCatalogProducts(nextId, customSystems);
     const first = nextProducts[0];
     setProductKey(first?.productKey || "");
     setKitIndex(0);
@@ -110,6 +112,7 @@ export default function MaterialOrderForm({
       categoryLabel: category.label,
       qty,
       tierKey,
+      customSystems,
     });
     setLines((prev) => [...prev, { ...line, id: `${Date.now()}-${prev.length}` }]);
     setMessage("");
@@ -278,7 +281,9 @@ export default function MaterialOrderForm({
   }
 
   const mainCats = MATERIAL_CATEGORIES.filter((c) => c.group === "main");
+  const myLayerCats = MATERIAL_CATEGORIES.filter((c) => c.group === "my_layers");
   const ancCats = MATERIAL_CATEGORIES.filter((c) => c.group === "ancillary");
+  const hasMyLayers = myLayerCats.some((c) => listCatalogProducts(c.id, customSystems).length > 0);
 
   return (
     <div style={{ ...S.card, marginTop: 12, border: "1px solid #113a72" }}>
@@ -352,6 +357,32 @@ export default function MaterialOrderForm({
           </button>
         ))}
       </div>
+
+      {hasMyLayers && (
+        <>
+          <div style={{ fontSize: 9, color: "#eab308", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>
+            {MATERIAL_CATEGORY_GROUPS.my_layers}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {myLayerCats
+              .filter((c) => listCatalogProducts(c.id, customSystems).length > 0)
+              .map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  style={{
+                    ...S.btnSm,
+                    borderColor: categoryId === c.id ? "#eab308" : "#113a72",
+                    background: categoryId === c.id ? "rgba(234,179,8,0.15)" : "#000",
+                  }}
+                  onClick={() => onCategoryChange(c.id)}
+                >
+                  {c.label}
+                </button>
+              ))}
+          </div>
+        </>
+      )}
 
       <div style={{ fontSize: 9, color: "#eab308", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>
         {MATERIAL_CATEGORY_GROUPS.ancillary}
@@ -440,7 +471,7 @@ export default function MaterialOrderForm({
               {lines.map((line) => (
                 <tr key={line.id}>
                   <td style={S.td}>
-                    {getProductLineLabel(line.productKey, line.kitIndex)}
+                    {getProductLineLabel(line.productKey, line.kitIndex, customSystems)}
                     <div style={{ fontSize: 9, color: "#9bb2d1" }}>{line.categoryLabel}</div>
                   </td>
                   <td style={S.td}>{line.qty}</td>

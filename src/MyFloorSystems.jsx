@@ -4,46 +4,64 @@ import {
   emptyLayer,
   syncLayerPrices,
   validateSystem,
+  suggestSystemName,
+  SYSTEM_LOCATIONS,
+  SYSTEM_TYPES,
+  LAYER_TYPES,
+  ECOS_BROADCAST_COLORS,
+  ECOS_PIGMENT_COLORS,
+  needsColorField,
+  ensureDefaultFgpVendor,
 } from "./customFloorSystems.js";
 
 const DIAGRAM_NOTE =
-  "We'll design a professional system cutaway for a custom fee (quote on request). Process typically takes 5–7 business days. (Feature coming soon — submissions are queued.)";
+  "Epoxy Twins can create a professional 3D cutaway for your system for $49. Processing time: 5–7 business days.";
 
 const IP_NOTE =
   "Systems created in ECOS are owned by Epoxy Twins LLC. You retain usage rights for your business. Attorney audit required — add to Terms of Service before launch.";
 
-export default function MyFloorSystems({ styles: S, session, userProfile }) {
-  const [tab, setTab] = useState("systems"); // systems | vendors
+export default function MyFloorSystems({ styles: S, session, userProfile, onSystemsChanged }) {
+  const [tab, setTab] = useState("systems");
   const [systems, setSystems] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // Editor
   const [editingId, setEditingId] = useState(null);
   const [systemName, setSystemName] = useState("");
+  const [location, setLocation] = useState("");
+  const [systemType, setSystemType] = useState("");
   const [layers, setLayers] = useState([emptyLayer()]);
   const [saving, setSaving] = useState(false);
+  const [nameTouched, setNameTouched] = useState(false);
 
-  // Vendors
   const [vendorName, setVendorName] = useState("");
   const [vendorEmail, setVendorEmail] = useState("");
+  const [vendorPhone, setVendorPhone] = useState("");
   const [editingVendorId, setEditingVendorId] = useState(null);
 
-  // Diagram request
+  /** Inline add-vendor while editing a layer (layer index or null). */
+  const [inlineVendorForLayer, setInlineVendorForLayer] = useState(null);
+  const [inlineVendorName, setInlineVendorName] = useState("");
+  const [inlineVendorEmail, setInlineVendorEmail] = useState("");
+  const [inlineVendorPhone, setInlineVendorPhone] = useState("");
+
   const [diagramSystem, setDiagramSystem] = useState(null);
   const [diagramDesc, setDiagramDesc] = useState("");
   const [diagramName, setDiagramName] = useState("");
   const [diagramEmail, setDiagramEmail] = useState("");
 
   const userId = session?.user?.id;
+  const suggestedName = suggestSystemName(userProfile?.first_name);
+  const metaReady = Boolean(systemName.trim() && location && systemType);
 
   const loadAll = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
     setError("");
     try {
+      await ensureDefaultFgpVendor(supabase, userId);
       const [sysRes, vendRes] = await Promise.all([
         supabase.from("custom_floor_systems").select("*").eq("user_id", userId).order("updated_at", { ascending: false }),
         supabase.from("contractor_vendors").select("*").eq("user_id", userId).order("name"),
@@ -52,6 +70,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
       if (vendRes.error) throw vendRes.error;
       setSystems(sysRes.data || []);
       setVendors(vendRes.data || []);
+      onSystemsChanged?.(sysRes.data || []);
     } catch (e) {
       setError(
         e?.message?.includes("schema cache") || e?.code === "42P01"
@@ -61,7 +80,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, onSystemsChanged]);
 
   useEffect(() => {
     void loadAll();
@@ -76,18 +95,36 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
     setDiagramEmail(userProfile?.email || session?.user?.email || "");
   }, [userProfile, session]);
 
+  useEffect(() => {
+    if (!nameTouched && !editingId) {
+      setSystemName(suggestedName);
+    }
+  }, [suggestedName, nameTouched, editingId]);
+
   function resetEditor() {
     setEditingId(null);
-    setSystemName("");
+    setSystemName(suggestedName);
+    setNameTouched(false);
+    setLocation("");
+    setSystemType("");
     setLayers([emptyLayer()]);
+    setInlineVendorForLayer(null);
   }
 
   function startEdit(sys) {
     setEditingId(sys.id);
     setSystemName(sys.name || "");
-    setLayers(Array.isArray(sys.layers) && sys.layers.length ? sys.layers.map((l) => ({ ...emptyLayer(), ...l })) : [emptyLayer()]);
+    setNameTouched(true);
+    setLocation(sys.location || "");
+    setSystemType(sys.system_type || "");
+    setLayers(
+      Array.isArray(sys.layers) && sys.layers.length
+        ? sys.layers.map((l) => ({ ...emptyLayer(), ...l }))
+        : [emptyLayer()]
+    );
     setTab("systems");
     setMessage("");
+    setInlineVendorForLayer(null);
   }
 
   function updateLayer(idx, patch, priceField) {
@@ -95,6 +132,10 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
       prev.map((l, i) => {
         if (i !== idx) return l;
         let next = { ...l, ...patch };
+        if (patch.type && needsColorField(patch.type) && !needsColorField(l.type)) {
+          next.colorName = "";
+          next.colorCustom = false;
+        }
         if (priceField) next = syncLayerPrices(next, priceField);
         else if (patch.kitSize !== undefined) next = syncLayerPrices(next, "kitSize");
         return next;
@@ -103,7 +144,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
   }
 
   async function saveSystem() {
-    const errs = validateSystem(systemName, layers);
+    const errs = validateSystem({ name: systemName, location, systemType, layers });
     if (errs.length) {
       setError(errs[0]);
       return;
@@ -115,10 +156,13 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
     const payload = {
       user_id: userId,
       name: systemName.trim(),
+      location,
+      system_type: systemType,
       layers: layers.map((l) => ({
         id: l.id,
         name: String(l.name || "").trim(),
-        type: l.type === "broadcast" ? "broadcast" : "liquid",
+        type: l.type === "broadcast" ? "broadcast" : l.type === "pigment" ? "pigment" : "liquid",
+        colorName: needsColorField(l.type) ? String(l.colorName || "").trim() : "",
         coverageRate: Number(l.coverageRate),
         kitSize: Number(l.kitSize),
         unitType: l.unitType === "lbs" ? "lbs" : "gallons",
@@ -157,37 +201,63 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
     }
   }
 
-  async function saveVendor() {
-    const name = vendorName.trim();
-    const email = vendorEmail.trim();
+  async function saveVendor(fromInline = false) {
+    const name = (fromInline ? inlineVendorName : vendorName).trim();
+    const email = (fromInline ? inlineVendorEmail : vendorEmail).trim();
+    const phone = (fromInline ? inlineVendorPhone : vendorPhone).trim();
     if (!name || !email) {
       setError("Vendor name and email required.");
-      return;
+      return null;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setError("Enter a valid vendor email.");
-      return;
+      return null;
     }
     setError("");
     try {
-      if (editingVendorId) {
-        const { error: err } = await supabase
+      if (!fromInline && editingVendorId) {
+        const { data, error: err } = await supabase
           .from("contractor_vendors")
-          .update({ name, email, updated_at: new Date().toISOString() })
+          .update({ name, email, phone: phone || null, updated_at: new Date().toISOString() })
           .eq("id", editingVendorId)
-          .eq("user_id", userId);
+          .eq("user_id", userId)
+          .select()
+          .maybeSingle();
         if (err) throw err;
-      } else {
-        const { error: err } = await supabase.from("contractor_vendors").insert({ user_id: userId, name, email });
-        if (err) throw err;
+        setVendorName("");
+        setVendorEmail("");
+        setVendorPhone("");
+        setEditingVendorId(null);
+        setMessage("Vendor updated.");
+        await loadAll();
+        return data;
       }
-      setVendorName("");
-      setVendorEmail("");
-      setEditingVendorId(null);
-      setMessage(editingVendorId ? "Vendor updated." : "Vendor added.");
+      const { data, error: err } = await supabase
+        .from("contractor_vendors")
+        .insert({ user_id: userId, name, email, phone: phone || null })
+        .select()
+        .maybeSingle();
+      if (err) throw err;
+      if (fromInline) {
+        setInlineVendorName("");
+        setInlineVendorEmail("");
+        setInlineVendorPhone("");
+        if (inlineVendorForLayer != null && data?.id) {
+          updateLayer(inlineVendorForLayer, { vendorId: data.id });
+        }
+        setInlineVendorForLayer(null);
+        setMessage(`Vendor "${name}" added.`);
+      } else {
+        setVendorName("");
+        setVendorEmail("");
+        setVendorPhone("");
+        setMessage("Vendor added.");
+      }
       await loadAll();
+      return data;
     } catch (e) {
       setError(e?.message || "Could not save vendor.");
+      return null;
     }
   }
 
@@ -214,11 +284,18 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
         contractor_name: name,
         email,
         description: diagramDesc.trim() || null,
+        status: "pending",
       });
       if (err) throw err;
-      setMessage("Diagram request submitted — we'll follow up by email.");
+      await supabase
+        .from("custom_floor_systems")
+        .update({ diagram_status: "pending", updated_at: new Date().toISOString() })
+        .eq("id", diagramSystem.id)
+        .eq("user_id", userId);
+      setMessage("Diagram request submitted — status: Pending.");
       setDiagramSystem(null);
       setDiagramDesc("");
+      await loadAll();
     } catch (e) {
       setError(e?.message || "Could not submit diagram request.");
     }
@@ -228,6 +305,10 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
     () => [{ id: "", name: "— No vendor —" }, ...vendors, { id: "__new__", name: "+ Add new vendor" }],
     [vendors]
   );
+
+  function colorOptionsForLayer(type) {
+    return type === "broadcast" ? ECOS_BROADCAST_COLORS : ECOS_PIGMENT_COLORS;
+  }
 
   return (
     <div>
@@ -278,15 +359,24 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
             <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
               <label style={{ fontSize: 10, color: "#9bb2d1" }}>
                 Name
-                <input style={{ ...S.input, marginTop: 4 }} value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="FGP Midwest" />
+                <input
+                  style={{ ...S.input, marginTop: 4 }}
+                  value={vendorName}
+                  onChange={(e) => setVendorName(e.target.value)}
+                  placeholder="fill in with vendors name"
+                />
               </label>
               <label style={{ fontSize: 10, color: "#9bb2d1" }}>
                 Email
                 <input style={{ ...S.input, marginTop: 4 }} value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} placeholder="orders@vendor.com" />
               </label>
+              <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                Phone <span style={{ color: "#6b7f99" }}>(optional)</span>
+                <input style={{ ...S.input, marginTop: 4 }} value={vendorPhone} onChange={(e) => setVendorPhone(e.target.value)} placeholder="Future: SMS to vendors" />
+              </label>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button type="button" style={S.btnSm} onClick={() => void saveVendor()}>
+              <button type="button" style={S.btnSm} onClick={() => void saveVendor(false)}>
                 {editingVendorId ? "Update vendor" : "Add vendor"}
               </button>
               {editingVendorId && (
@@ -297,6 +387,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
                     setEditingVendorId(null);
                     setVendorName("");
                     setVendorEmail("");
+                    setVendorPhone("");
                   }}
                 >
                   Cancel
@@ -312,7 +403,10 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
                 <div key={v.id} style={{ borderBottom: "1px solid #113a72", padding: "10px 0", display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ fontSize: 12, color: "#fff", fontWeight: 900 }}>{v.name}</div>
-                    <div style={{ fontSize: 10, color: "#9bb2d1" }}>{v.email}</div>
+                    <div style={{ fontSize: 10, color: "#9bb2d1" }}>
+                      {v.email}
+                      {v.phone ? ` · ${v.phone}` : ""}
+                    </div>
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button
@@ -322,6 +416,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
                         setEditingVendorId(v.id);
                         setVendorName(v.name);
                         setVendorEmail(v.email);
+                        setVendorPhone(v.phone || "");
                       }}
                     >
                       Edit
@@ -341,160 +436,289 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
             <div style={{ fontSize: 13, color: "#fff", fontWeight: 900, marginBottom: 10 }}>
               {editingId ? "Edit system" : "Create system"}
             </div>
+
             <label style={{ fontSize: 10, color: "#9bb2d1", display: "block", marginBottom: 12 }}>
               System name
               <input
                 style={{ ...S.input, marginTop: 4 }}
                 value={systemName}
-                onChange={(e) => setSystemName(e.target.value)}
-                placeholder="Seth's Premium Metallic"
+                onChange={(e) => {
+                  setNameTouched(true);
+                  setSystemName(e.target.value);
+                }}
+                placeholder={suggestedName}
               />
             </label>
 
-            {layers.map((layer, idx) => (
-              <div
-                key={layer.id}
-                style={{
-                  border: "1px solid #113a72",
-                  borderRadius: 8,
-                  padding: 12,
-                  marginBottom: 10,
-                  background: "rgba(0,0,0,0.35)",
-                }}
+            <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 6 }}>Location (required)</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+              {SYSTEM_LOCATIONS.map((loc) => (
+                <button
+                  key={loc.id}
+                  type="button"
+                  style={S.opt(location === loc.id)}
+                  onClick={() => setLocation(loc.id)}
+                >
+                  {loc.label}
+                </button>
+              ))}
+            </div>
+
+            <label style={{ fontSize: 10, color: "#9bb2d1", display: "block", marginBottom: 14 }}>
+              System type (required)
+              <select
+                style={{ ...S.input, marginTop: 4 }}
+                value={systemType}
+                onChange={(e) => setSystemType(e.target.value)}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, color: "#e33433", fontWeight: 900, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                    Layer {idx + 1}
+                <option value="">Select type…</option>
+                {SYSTEM_TYPES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {!metaReady ? (
+              <div style={{ fontSize: 11, color: "#9bb2d1", lineHeight: 1.5 }}>
+                Enter a system name, Indoor/Outdoor, and system type to unlock the layer builder.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, color: "#e33433", fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, borderTop: "1px solid #113a72", paddingTop: 12 }}>
+                  Layer builder
+                </div>
+
+                {layers.map((layer, idx) => (
+                  <div
+                    key={layer.id}
+                    style={{
+                      border: "1px solid #113a72",
+                      borderRadius: 8,
+                      padding: 12,
+                      marginBottom: 10,
+                      background: "rgba(0,0,0,0.35)",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: "#e33433", fontWeight: 900, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        Layer {idx + 1}
+                      </div>
+                      {layers.length > 1 && (
+                        <button
+                          type="button"
+                          style={{ ...S.btnSm, borderColor: "#e33433", color: "#fca5a5" }}
+                          onClick={() => setLayers((prev) => prev.filter((_, i) => i !== idx))}
+                        >
+                          Remove layer
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+                      <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        Name
+                        <input
+                          style={{ ...S.input, marginTop: 4 }}
+                          value={layer.name}
+                          onChange={(e) => updateLayer(idx, { name: e.target.value })}
+                          placeholder="Base Coat"
+                        />
+                      </label>
+                      <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        Type
+                        <select
+                          style={{ ...S.input, marginTop: 4 }}
+                          value={layer.type}
+                          onChange={(e) => updateLayer(idx, { type: e.target.value })}
+                        >
+                          {LAYER_TYPES.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {needsColorField(layer.type) && (
+                        <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                          Color name
+                          <select
+                            style={{ ...S.input, marginTop: 4 }}
+                            value={layer.colorCustom ? "__custom__" : layer.colorName || ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === "__custom__") {
+                                updateLayer(idx, { colorCustom: true, colorName: "" });
+                              } else {
+                                updateLayer(idx, { colorCustom: false, colorName: v });
+                              }
+                            }}
+                          >
+                            <option value="">Select color…</option>
+                            {colorOptionsForLayer(layer.type).map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                            <option value="__custom__">Other (type below)…</option>
+                          </select>
+                          {layer.colorCustom && (
+                            <input
+                              style={{ ...S.input, marginTop: 6 }}
+                              value={layer.colorName}
+                              onChange={(e) => updateLayer(idx, { colorName: e.target.value, colorCustom: true })}
+                              placeholder="Custom color name"
+                            />
+                          )}
+                        </label>
+                      )}
+
+                      <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        Coverage (sq ft / unit)
+                        <input
+                          style={{ ...S.input, marginTop: 4 }}
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={layer.coverageRate}
+                          onChange={(e) => updateLayer(idx, { coverageRate: e.target.value })}
+                          placeholder="600"
+                        />
+                      </label>
+                      <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        Kit size
+                        <input
+                          style={{ ...S.input, marginTop: 4 }}
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={layer.kitSize}
+                          onChange={(e) => updateLayer(idx, { kitSize: e.target.value }, "kitSize")}
+                          placeholder="15"
+                        />
+                      </label>
+                      <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        Unit type
+                        <select
+                          style={{ ...S.input, marginTop: 4 }}
+                          value={layer.unitType}
+                          onChange={(e) => updateLayer(idx, { unitType: e.target.value })}
+                        >
+                          <option value="gallons">Gallons</option>
+                          <option value="lbs">Lbs</option>
+                        </select>
+                      </label>
+                      <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        Price per kit ($)
+                        <input
+                          style={{ ...S.input, marginTop: 4 }}
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={layer.pricePerKit}
+                          onChange={(e) => updateLayer(idx, { pricePerKit: e.target.value }, "pricePerKit")}
+                          placeholder="500"
+                        />
+                      </label>
+                      <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        Price per {layer.unitType === "lbs" ? "lb" : "gal"} ($)
+                        <input
+                          style={{ ...S.input, marginTop: 4 }}
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={layer.pricePerUnit}
+                          onChange={(e) => updateLayer(idx, { pricePerUnit: e.target.value }, "pricePerUnit")}
+                          placeholder="auto"
+                        />
+                      </label>
+                      <label style={{ fontSize: 10, color: "#9bb2d1" }}>
+                        Vendor
+                        <select
+                          style={{ ...S.input, marginTop: 4 }}
+                          value={layer.vendorId || ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "__new__") {
+                              setInlineVendorForLayer(idx);
+                              setInlineVendorName("");
+                              setInlineVendorEmail("");
+                              setInlineVendorPhone("");
+                              return;
+                            }
+                            updateLayer(idx, { vendorId: v });
+                          }}
+                        >
+                          {vendorOptions.map((v) => (
+                            <option key={v.id || "none"} value={v.id}>
+                              {v.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    {inlineVendorForLayer === idx && (
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: 12,
+                          borderRadius: 8,
+                          border: "1px solid #eab308",
+                          background: "rgba(234,179,8,0.08)",
+                        }}
+                      >
+                        <div style={{ fontSize: 11, color: "#f5d676", fontWeight: 900, marginBottom: 8 }}>Add new vendor</div>
+                        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+                          <input
+                            style={S.input}
+                            value={inlineVendorName}
+                            onChange={(e) => setInlineVendorName(e.target.value)}
+                            placeholder="fill in with vendors name"
+                          />
+                          <input
+                            style={S.input}
+                            value={inlineVendorEmail}
+                            onChange={(e) => setInlineVendorEmail(e.target.value)}
+                            placeholder="orders@vendor.com"
+                          />
+                          <input
+                            style={S.input}
+                            value={inlineVendorPhone}
+                            onChange={(e) => setInlineVendorPhone(e.target.value)}
+                            placeholder="Phone (optional)"
+                          />
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                          <button type="button" style={S.btnSm} onClick={() => void saveVendor(true)}>
+                            Save vendor
+                          </button>
+                          <button type="button" style={S.btnSm} onClick={() => setInlineVendorForLayer(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {layers.length > 1 && (
-                    <button
-                      type="button"
-                      style={{ ...S.btnSm, borderColor: "#e33433", color: "#fca5a5" }}
-                      onClick={() => setLayers((prev) => prev.filter((_, i) => i !== idx))}
-                    >
-                      Remove layer
+                ))}
+
+                <button type="button" style={{ ...S.btnSm, marginBottom: 12 }} onClick={() => setLayers((prev) => [...prev, emptyLayer()])}>
+                  + Add layer
+                </button>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" style={{ ...S.btn, marginTop: 0, opacity: saving ? 0.7 : 1 }} disabled={saving} onClick={() => void saveSystem()}>
+                    {saving ? "Saving…" : editingId ? "Update system" : "Save as reusable system"}
+                  </button>
+                  {editingId && (
+                    <button type="button" style={S.btnSm} onClick={resetEditor}>
+                      Cancel edit
                     </button>
                   )}
                 </div>
-                <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
-                  <label style={{ fontSize: 10, color: "#9bb2d1" }}>
-                    Name
-                    <input
-                      style={{ ...S.input, marginTop: 4 }}
-                      value={layer.name}
-                      onChange={(e) => updateLayer(idx, { name: e.target.value })}
-                      placeholder="Base Coat"
-                    />
-                  </label>
-                  <label style={{ fontSize: 10, color: "#9bb2d1" }}>
-                    Type
-                    <select
-                      style={{ ...S.input, marginTop: 4 }}
-                      value={layer.type}
-                      onChange={(e) => updateLayer(idx, { type: e.target.value })}
-                    >
-                      <option value="liquid">Liquid</option>
-                      <option value="broadcast">Broadcast Media/Additive</option>
-                    </select>
-                  </label>
-                  <label style={{ fontSize: 10, color: "#9bb2d1" }}>
-                    Coverage (sq ft / unit)
-                    <input
-                      style={{ ...S.input, marginTop: 4 }}
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={layer.coverageRate}
-                      onChange={(e) => updateLayer(idx, { coverageRate: e.target.value })}
-                      placeholder="600"
-                    />
-                  </label>
-                  <label style={{ fontSize: 10, color: "#9bb2d1" }}>
-                    Kit size
-                    <input
-                      style={{ ...S.input, marginTop: 4 }}
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={layer.kitSize}
-                      onChange={(e) => updateLayer(idx, { kitSize: e.target.value }, "kitSize")}
-                      placeholder="15"
-                    />
-                  </label>
-                  <label style={{ fontSize: 10, color: "#9bb2d1" }}>
-                    Unit type
-                    <select
-                      style={{ ...S.input, marginTop: 4 }}
-                      value={layer.unitType}
-                      onChange={(e) => updateLayer(idx, { unitType: e.target.value })}
-                    >
-                      <option value="gallons">Gallons</option>
-                      <option value="lbs">Lbs</option>
-                    </select>
-                  </label>
-                  <label style={{ fontSize: 10, color: "#9bb2d1" }}>
-                    Price per kit ($)
-                    <input
-                      style={{ ...S.input, marginTop: 4 }}
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={layer.pricePerKit}
-                      onChange={(e) => updateLayer(idx, { pricePerKit: e.target.value }, "pricePerKit")}
-                      placeholder="500"
-                    />
-                  </label>
-                  <label style={{ fontSize: 10, color: "#9bb2d1" }}>
-                    Price per {layer.unitType === "lbs" ? "lb" : "gal"} ($)
-                    <input
-                      style={{ ...S.input, marginTop: 4 }}
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={layer.pricePerUnit}
-                      onChange={(e) => updateLayer(idx, { pricePerUnit: e.target.value }, "pricePerUnit")}
-                      placeholder="auto"
-                    />
-                  </label>
-                  <label style={{ fontSize: 10, color: "#9bb2d1" }}>
-                    Vendor
-                    <select
-                      style={{ ...S.input, marginTop: 4 }}
-                      value={layer.vendorId || ""}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v === "__new__") {
-                          setTab("vendors");
-                          return;
-                        }
-                        updateLayer(idx, { vendorId: v });
-                      }}
-                    >
-                      {vendorOptions.map((v) => (
-                        <option key={v.id || "none"} value={v.id}>
-                          {v.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </div>
-            ))}
-
-            <button type="button" style={{ ...S.btnSm, marginBottom: 12 }} onClick={() => setLayers((prev) => [...prev, emptyLayer()])}>
-              + Add layer
-            </button>
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" style={{ ...S.btn, marginTop: 0, opacity: saving ? 0.7 : 1 }} disabled={saving} onClick={() => void saveSystem()}>
-                {saving ? "Saving…" : editingId ? "Update system" : "Save as reusable system"}
-              </button>
-              {editingId && (
-                <button type="button" style={S.btnSm} onClick={resetEditor}>
-                  Cancel edit
-                </button>
-              )}
-            </div>
+              </>
+            )}
           </div>
 
           <div style={{ ...S.sectionHead, marginTop: 8 }}>Saved systems</div>
@@ -511,9 +735,15 @@ export default function MyFloorSystems({ styles: S, session, userProfile }) {
                         <span style={{ fontSize: 9, color: "#eab308", border: "1px solid #eab308", borderRadius: 4, padding: "1px 5px", marginLeft: 4 }}>
                           CUSTOM
                         </span>
+                        {sys.diagram_status === "pending" && (
+                          <span style={{ fontSize: 9, color: "#f5d676", border: "1px solid #eab308", borderRadius: 4, padding: "1px 5px", marginLeft: 4 }}>
+                            Diagram: Pending
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 3 }}>
-                        {(sys.layers || []).length} layer(s) · Updated {sys.updated_at ? new Date(sys.updated_at).toLocaleDateString() : "—"}
+                        {(sys.location || "—").toString()} · {SYSTEM_TYPES.find((t) => t.id === sys.system_type)?.label || sys.system_type || "—"} ·{" "}
+                        {(sys.layers || []).length} layer(s)
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
