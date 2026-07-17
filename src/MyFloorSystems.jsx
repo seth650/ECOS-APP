@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import {
   emptyLayer,
@@ -19,6 +19,28 @@ const DIAGRAM_NOTE =
 
 const IP_NOTE =
   "Systems created in ECOS are owned by Epoxy Twins LLC. You retain usage rights for your business. Attorney audit required — add to Terms of Service before launch.";
+
+function SkeletonBlock({ S, lines = 3 }) {
+  return (
+    <div style={{ ...S.card, pointerEvents: "none" }}>
+      {Array.from({ length: lines }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            height: i === 0 ? 14 : 10,
+            width: i === 0 ? "55%" : `${70 - i * 12}%`,
+            borderRadius: 4,
+            marginBottom: 10,
+            background: "linear-gradient(90deg, #0f2440 0%, #1a3a66 50%, #0f2440 100%)",
+            backgroundSize: "200% 100%",
+            animation: "ecosSkeleton 1.2s ease-in-out infinite",
+          }}
+        />
+      ))}
+      <style>{`@keyframes ecosSkeleton { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }`}</style>
+    </div>
+  );
+}
 
 export default function MyFloorSystems({ styles: S, session, userProfile, onSystemsChanged }) {
   const [tab, setTab] = useState("systems");
@@ -53,12 +75,22 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
   const [diagramEmail, setDiagramEmail] = useState("");
 
   const userId = session?.user?.id;
-  const suggestedName = suggestSystemName(userProfile?.first_name);
+  const firstName = userProfile?.first_name || "";
+  const suggestedName = useMemo(() => suggestSystemName(firstName), [firstName]);
   const metaReady = Boolean(systemName.trim() && location && systemType);
 
-  const loadAll = useCallback(async () => {
-    if (!userId) return;
-    setLoading(true);
+  // Keep parent callback out of fetch deps — inline props were causing an infinite fetch loop.
+  const onSystemsChangedRef = useRef(onSystemsChanged);
+  useEffect(() => {
+    onSystemsChangedRef.current = onSystemsChanged;
+  }, [onSystemsChanged]);
+
+  const loadAll = useCallback(async ({ quiet = false } = {}) => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+    if (!quiet) setLoading(true);
     setError("");
     try {
       await ensureDefaultFgpVendor(supabase, userId);
@@ -68,9 +100,11 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
       ]);
       if (sysRes.error) throw sysRes.error;
       if (vendRes.error) throw vendRes.error;
-      setSystems(sysRes.data || []);
-      setVendors(vendRes.data || []);
-      onSystemsChanged?.(sysRes.data || []);
+      const nextSystems = sysRes.data || [];
+      const nextVendors = vendRes.data || [];
+      setSystems(nextSystems);
+      setVendors(nextVendors);
+      onSystemsChangedRef.current?.(nextSystems);
     } catch (e) {
       setError(
         e?.message?.includes("schema cache") || e?.code === "42P01"
@@ -80,24 +114,26 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
     } finally {
       setLoading(false);
     }
-  }, [userId, onSystemsChanged]);
+  }, [userId]);
 
+  // Fetch once per user id (mount / login change) — not on every parent re-render.
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
 
   useEffect(() => {
-    setDiagramName(
+    const name =
       [userProfile?.first_name, userProfile?.last_name].filter(Boolean).join(" ") ||
-        userProfile?.company_name ||
-        ""
-    );
-    setDiagramEmail(userProfile?.email || session?.user?.email || "");
-  }, [userProfile, session]);
+      userProfile?.company_name ||
+      "";
+    const email = userProfile?.email || session?.user?.email || "";
+    setDiagramName((prev) => (prev === name ? prev : name));
+    setDiagramEmail((prev) => (prev === email ? prev : email));
+  }, [userProfile?.first_name, userProfile?.last_name, userProfile?.company_name, userProfile?.email, session?.user?.email]);
 
   useEffect(() => {
     if (!nameTouched && !editingId) {
-      setSystemName(suggestedName);
+      setSystemName((prev) => (prev === suggestedName ? prev : suggestedName));
     }
   }, [suggestedName, nameTouched, editingId]);
 
@@ -183,7 +219,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
         setMessage("System saved — it will appear in the calculator picker.");
       }
       resetEditor();
-      await loadAll();
+      await loadAll({ quiet: true });
     } catch (e) {
       setError(e?.message || "Could not save system.");
     } finally {
@@ -197,7 +233,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
     if (err) setError(err.message);
     else {
       if (editingId === id) resetEditor();
-      await loadAll();
+      await loadAll({ quiet: true });
     }
   }
 
@@ -229,7 +265,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
         setVendorPhone("");
         setEditingVendorId(null);
         setMessage("Vendor updated.");
-        await loadAll();
+        await loadAll({ quiet: true });
         return data;
       }
       const { data, error: err } = await supabase
@@ -253,7 +289,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
         setVendorPhone("");
         setMessage("Vendor added.");
       }
-      await loadAll();
+      await loadAll({ quiet: true });
       return data;
     } catch (e) {
       setError(e?.message || "Could not save vendor.");
@@ -265,7 +301,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
     if (!window.confirm("Delete this vendor?")) return;
     const { error: err } = await supabase.from("contractor_vendors").delete().eq("id", id).eq("user_id", userId);
     if (err) setError(err.message);
-    else await loadAll();
+    else await loadAll({ quiet: true });
   }
 
   async function submitDiagramRequest() {
@@ -295,7 +331,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
       setMessage("Diagram request submitted — status: Pending.");
       setDiagramSystem(null);
       setDiagramDesc("");
-      await loadAll();
+      await loadAll({ quiet: true });
     } catch (e) {
       setError(e?.message || "Could not submit diagram request.");
     }
@@ -349,7 +385,10 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
       )}
 
       {loading ? (
-        <div style={{ fontSize: 11, color: "#9bb2d1" }}>Loading…</div>
+        <>
+          <SkeletonBlock S={S} lines={4} />
+          <SkeletonBlock S={S} lines={3} />
+        </>
       ) : tab === "vendors" ? (
         <>
           <div style={S.card}>

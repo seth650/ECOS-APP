@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { getApiBase } from "./stripeClient.js";
 import {
@@ -1490,6 +1490,19 @@ export default function App() {
     }
     void loadCustomFloorData(session);
   }, [session?.user?.id, userProfile?.membership_tier, profileVersion]);
+
+  const handleCustomSystemsChanged = useCallback((list) => {
+    const next = list || [];
+    setCustomFloorSystems((prev) => {
+      if (
+        prev.length === next.length &&
+        prev.every((p, i) => p.id === next[i]?.id && p.updated_at === next[i]?.updated_at)
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -5624,7 +5637,7 @@ export default function App() {
                 styles={S}
                 session={session}
                 userProfile={userProfile}
-                onSystemsChanged={(list) => setCustomFloorSystems(list || [])}
+                onSystemsChanged={handleCustomSystemsChanged}
               />
             )}
             <div style={{ marginTop: 14 }}>
