@@ -30,7 +30,9 @@ import {
   dedupeVendorsByEmail,
 } from "./customFloorSystems.js";
 import { membershipTierToPlanTag, tierTagToMembershipTier } from "./membershipLabels.js";
-import { TERMS_SECTIONS, TERMS_LAST_UPDATED, PRIVACY_SECTIONS, PRIVACY_LAST_UPDATED } from "./legalPages.js";
+import { TERMS_SECTIONS, TERMS_EFFECTIVE_DATE, PRIVACY_SECTIONS, PRIVACY_EFFECTIVE_DATE, TERMS_TITLE, PRIVACY_TITLE, phaseFromPathname, pathForLegalPhase } from "./legalPages.js";
+import LegalDocumentPage from "./LegalDocumentPage.jsx";
+import SiteFooter from "./SiteFooter.jsx";
 import {
   openProfessionalEstimatePrint,
   downloadProfessionalEstimateJpg,
@@ -1272,7 +1274,7 @@ export default function App() {
   const [assignedPricingTierKey, setAssignedPricingTierKey] = useState("msrp");
   const [profileVersion, setProfileVersion] = useState(0);
   const [speed, setSpeed] = useState("");
-  const [phase, setPhase] = useState("questions"); // questions | results | submitted | account | userdb | orders | plans | floor-systems | terms | privacy
+  const [phase, setPhase] = useState(() => phaseFromPathname(typeof window !== "undefined" ? window.location.pathname : "") || "questions"); // questions | results | submitted | account | userdb | orders | plans | floor-systems | terms | privacy
   const [contractorName, setContractorName] = useState("");
   const [jobName, setJobName] = useState("");
   const [submittedDraft, setSubmittedDraft] = useState(null);
@@ -1488,6 +1490,41 @@ export default function App() {
       appSuccessToastTimerRef.current = null;
     }, 8000);
   }
+
+  function showAuthErrorToast(message) {
+    showAppSuccessToast(message);
+  }
+
+  function goToLegal(doc) {
+    const next = doc === "privacy" ? "privacy" : "terms";
+    const path = pathForLegalPhase(next);
+    try {
+      window.history.pushState({ ecosLegal: next }, "", path);
+    } catch {
+      /* ignore */
+    }
+    setPhase(next);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  function leaveLegalPage() {
+    try {
+      window.history.pushState({}, "", "/");
+    } catch {
+      /* ignore */
+    }
+    setPhase(currentUser ? "account" : "questions");
+  }
+
+  useEffect(() => {
+    function onPopState() {
+      const legal = phaseFromPathname(window.location.pathname);
+      if (legal) setPhase(legal);
+      else if (phase === "terms" || phase === "privacy") setPhase(currentUser ? "questions" : "questions");
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [phase, currentUser]);
 
   useEffect(() => {
     userProfileRef.current = userProfile;
@@ -3047,7 +3084,9 @@ export default function App() {
         return;
       }
       if (!authAgreedLegal) {
-        setAuthError("You must agree to the Terms and Privacy Policy.");
+        const msg = "You must agree to the Terms of Service and Privacy Policy to continue";
+        setAuthError(msg);
+        showAuthErrorToast(msg);
         return;
       }
       const { data, error } = await supabase.auth.signUp({
@@ -3291,7 +3330,7 @@ export default function App() {
             transform: "translateX(-50%)",
             zIndex: 10050,
             maxWidth: "min(520px, calc(100vw - 24px))",
-            background: "#166534",
+            background: /must agree|error|failed|could not/i.test(appSuccessToast) ? "#7f1d1d" : "#166534",
             color: "#ffffff",
             padding: "14px 18px",
             borderRadius: 8,
@@ -3301,7 +3340,7 @@ export default function App() {
             lineHeight: 1.4,
             textAlign: "center",
             boxShadow: "0 10px 28px rgba(0,0,0,0.45)",
-            border: "1px solid #86efac",
+            border: /must agree|error|failed|could not/i.test(appSuccessToast) ? "1px solid #fca5a5" : "1px solid #86efac",
           }}
         >
           {appSuccessToast}
@@ -3556,7 +3595,7 @@ export default function App() {
             </div>
           </div>
         )}
-        {!isAuthLoading && !currentUser && (
+        {!isAuthLoading && !currentUser && phase !== "terms" && phase !== "privacy" && (
           <div style={S.authWrap}>
             <div style={S.authCard}>
               <div style={S.authTitle}>Welcome to ECOS</div>
@@ -3621,15 +3660,15 @@ export default function App() {
                     <label style={{ fontSize: 11, color: "#d2def1", lineHeight: 1.45, display: "flex", gap: 8, alignItems: "flex-start" }}>
                       <input type="checkbox" checked={authAgreedLegal} onChange={(e) => setAuthAgreedLegal(e.target.checked)} style={{ marginTop: 2 }} />
                       <span>
-                        I agree to the{" "}
-                        <button type="button" onClick={() => setPhase("terms")} style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit" }}>
+                        I agree to the Terms of Service and Privacy Policy (
+                        <a href="/terms" target="_blank" rel="noreferrer" style={{ color: "#f5d676" }}>
                           Terms of Service
-                        </button>{" "}
-                        and{" "}
-                        <button type="button" onClick={() => setPhase("privacy")} style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit" }}>
+                        </a>
+                        {" · "}
+                        <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: "#f5d676" }}>
                           Privacy Policy
-                        </button>
-                        .
+                        </a>
+                        )
                       </span>
                     </label>
                   </>
@@ -3669,7 +3708,14 @@ export default function App() {
                   </div>
                 )}
                 {authError && <div style={{ color: "#fca5a5", fontSize: 11 }}>{authError}</div>}
-                <button type="submit" style={S.btn}>
+                <button
+                  type="submit"
+                  style={{
+                    ...S.btn,
+                    opacity: authMode === "create" && !authAgreedLegal ? 0.45 : 1,
+                  }}
+                  aria-disabled={authMode === "create" && !authAgreedLegal}
+                >
                   {authMode === "login" ? "Login" : authMode === "create" ? "Create Account" : "Set New Password"}
                 </button>
                 {authMode === "login" && (
@@ -3682,7 +3728,7 @@ export default function App() {
           </div>
         )}
 
-        {shouldShowContractorPricingReminder && (
+        {shouldShowContractorPricingReminder && phase !== "terms" && phase !== "privacy" && (
           <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.12)", marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 5 }}>
               Unlock contractor pricing
@@ -5846,39 +5892,23 @@ export default function App() {
         )}
 
         {phase === "terms" && (
-          <>
-            <button type="button" style={{ ...S.btnSm, width: "100%", marginBottom: 12 }} onClick={() => setPhase(currentUser ? "account" : "questions")}>
-              ← Back
-            </button>
-            <div style={S.sectionHeadGold}>Terms of Service</div>
-            <div style={{ ...S.card, fontSize: 11, color: "#d2def1", lineHeight: 1.55 }}>
-              <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 10 }}>Last updated: {TERMS_LAST_UPDATED} · Attorney-ready draft — have counsel review before launch.</div>
-              {TERMS_SECTIONS.map((sec) => (
-                <div key={sec.title} style={{ marginBottom: 14 }}>
-                  <div style={{ color: "#fff", fontWeight: 800, marginBottom: 4 }}>{sec.title}</div>
-                  <div>{sec.body}</div>
-                </div>
-              ))}
-            </div>
-          </>
+          <LegalDocumentPage
+            styles={S}
+            title={TERMS_TITLE}
+            effectiveDate={TERMS_EFFECTIVE_DATE}
+            sections={TERMS_SECTIONS}
+            onBack={leaveLegalPage}
+          />
         )}
 
         {phase === "privacy" && (
-          <>
-            <button type="button" style={{ ...S.btnSm, width: "100%", marginBottom: 12 }} onClick={() => setPhase(currentUser ? "account" : "questions")}>
-              ← Back
-            </button>
-            <div style={S.sectionHeadGold}>Privacy Policy</div>
-            <div style={{ ...S.card, fontSize: 11, color: "#d2def1", lineHeight: 1.55 }}>
-              <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 10 }}>Last updated: {PRIVACY_LAST_UPDATED} · Attorney-ready draft — have counsel review before launch.</div>
-              {PRIVACY_SECTIONS.map((sec) => (
-                <div key={sec.title} style={{ marginBottom: 14 }}>
-                  <div style={{ color: "#fff", fontWeight: 800, marginBottom: 4 }}>{sec.title}</div>
-                  <div>{sec.body}</div>
-                </div>
-              ))}
-            </div>
-          </>
+          <LegalDocumentPage
+            styles={S}
+            title={PRIVACY_TITLE}
+            effectiveDate={PRIVACY_EFFECTIVE_DATE}
+            sections={PRIVACY_SECTIONS}
+            onBack={leaveLegalPage}
+          />
         )}
 
         {currentUser && phase === "plans" && (
@@ -5985,14 +6015,9 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ marginTop: 18, textAlign: "center", display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
-          <button type="button" onClick={() => setPhase("terms")} style={{ background: "transparent", border: "none", color: "#9bb2d1", textDecoration: "underline", cursor: "pointer", fontSize: 11 }}>
-            Terms
-          </button>
-          <button type="button" onClick={() => setPhase("privacy")} style={{ background: "transparent", border: "none", color: "#9bb2d1", textDecoration: "underline", cursor: "pointer", fontSize: 11 }}>
-            Privacy
-          </button>
-          {currentUser && (
+        <SiteFooter onNavigateLegal={goToLegal} />
+        {currentUser && (
+          <div style={{ textAlign: "center", marginTop: 8, marginBottom: 8 }}>
             <button
               type="button"
               onClick={handleFallbackLogout}
@@ -6000,8 +6025,8 @@ export default function App() {
             >
               Logout
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {contractorPricingModalOpen && (
