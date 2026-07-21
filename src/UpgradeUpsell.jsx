@@ -1,3 +1,7 @@
+/**
+ * Subtle navy/red upgrade prompts — Amazon-style, not aggressive.
+ * Reframed for Free / Estimator ($49) / Calculator ($149). No vendor-PO or unshipped estimate promos.
+ */
 import { useState } from "react";
 
 const MATERIAL_ORDER_SNOOZE_KEY = "ecos_upsell_material_order_snooze_until";
@@ -23,12 +27,11 @@ function snoozeMaterialOrderUpsell() {
   try {
     window.localStorage.setItem(MATERIAL_ORDER_SNOOZE_KEY, String(until));
   } catch {
-    /* ignore quota / private mode */
+    /* ignore */
   }
   return until;
 }
 
-/** Subtle navy/red upgrade prompts — Amazon-style, not aggressive. */
 export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
   const [snoozed, setSnoozed] = useState(() =>
     variant === "material-order" ? isMaterialOrderSnoozed() : false
@@ -65,14 +68,15 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
   if (variant === "calculator-submit") {
     return (
       <div style={cardBase}>
-        <div style={titleStyle}>Unlock Tier 2 features</div>
+        <div style={titleStyle}>Unlock Estimator</div>
         <ul style={{ margin: "0 0 8px 0", padding: 0, listStyle: "none" }}>
-          <li style={bulletStyle}>• Build your own custom systems</li>
-          <li style={bulletStyle}>• Generate POs to ANY vendor (not just FGP)</li>
-          <li style={bulletStyle}>• Send Customized Client Estimates</li>
+          <li style={bulletStyle}>• All 8 ET flooring systems</li>
+          <li style={bulletStyle}>• Custom systems builder</li>
+          <li style={bulletStyle}>• Full My Orders + 50 POs/year</li>
+          <li style={bulletStyle}>• Apply for contractor pricing</li>
         </ul>
         <button type="button" style={ctaBtn} onClick={onUpgrade}>
-          → Upgrade to Tier 2 for $149/mo
+          → Upgrade to Estimator — $49/mo
         </button>
       </div>
     );
@@ -89,10 +93,10 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
         }}
       >
         <div style={{ ...bodyStyle, color: "#e8d48a", marginBottom: 10 }}>
-          Tier 1 limit: 50 POs/year. Upgrade to Tier 2 for unlimited.
+          Estimator limit: 50 POs/year. Upgrade to Calculator for unlimited POs + Professional Estimates.
         </div>
         <button type="button" style={{ ...ctaBtn, borderColor: "#eab308" }} onClick={onUpgrade}>
-          → Upgrade to Tier 2
+          → Upgrade to Calculator — $149/mo
         </button>
       </div>
     );
@@ -104,11 +108,11 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
       <div style={{ ...cardBase, marginBottom: 14 }}>
         <div style={{ ...titleStyle, fontSize: 11, color: "#9bb2d1", marginBottom: 4 }}>Pro tip</div>
         <div style={bodyStyle}>
-          Tier 2+ can name custom systems + generate vendor POs — you've already saved yourself $149 at least this month putting together orders!
+          Estimator unlocks all 8 systems, custom builders, and full order history — you&apos;re already building smarter material lists.
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <button type="button" style={ctaBtn} onClick={onUpgrade}>
-            → Upgrade now
+            → Upgrade to Estimator
           </button>
           <button
             type="button"
@@ -118,14 +122,13 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
               color: "#9bb2d1",
               fontSize: 11,
               marginTop: 2,
-              background: "transparent",
             }}
             onClick={() => {
               snoozeMaterialOrderUpsell();
               setSnoozed(true);
             }}
           >
-            Remind me in 14 days
+            Remind me later
           </button>
         </div>
       </div>

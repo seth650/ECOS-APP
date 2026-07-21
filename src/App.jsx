@@ -13,22 +13,29 @@ import MyFloorSystems from "./MyFloorSystems.jsx";
 import { openJobCardPrint } from "./jobCardPrint.js";
 import {
   MAX_FREE_JOBS,
+  MAX_FREE_SAVED_JOBS,
   applyPoYearResetIfNeeded,
   getMaxJobsForMembershipTier,
+  getMaxSavedJobsForMembership,
   getPoCounterLabel,
   getTier1PoStatus,
   normalizePoProfileFields,
 } from "./poLimits.js";
 import {
   buildCustomOrderLines,
-  groupLinesByVendor,
   isCustomSystemKey,
   toCalculatorSystem,
   ensureDefaultFgpVendor,
   cleanupDuplicateVendors,
   dedupeVendorsByEmail,
 } from "./customFloorSystems.js";
-import { buildVendorPoText, openVendorPoPrint } from "./vendorPoPrint.js";
+import { membershipTierToPlanTag, tierTagToMembershipTier } from "./membershipLabels.js";
+import { TERMS_SECTIONS, TERMS_LAST_UPDATED, PRIVACY_SECTIONS, PRIVACY_LAST_UPDATED } from "./legalPages.js";
+import {
+  openProfessionalEstimatePrint,
+  downloadProfessionalEstimateJpg,
+  openContractorEstimateWithMargin,
+} from "./professionalEstimatePrint.js";
 
 const HEADER_LOGO_URL = "/favicon.svg";
 /** Must match Supabase Storage bucket name exactly (Dashboard → Storage). */
@@ -94,22 +101,9 @@ function resolveSystemCutawayImage(systemKey, systemCode) {
 
 // Default polyaspartic topcoat used by system logic.
 const DEFAULT_POLYASPARTIC_TOPCOAT_KEY = "aspartic85";
-const MAX_FREE_STORED_ORDERS = 5;
+const MAX_FREE_STORED_ORDERS = MAX_FREE_SAVED_JOBS;
 
 const FGP_ORDER_EMAIL = "orders@fgpmidwest.com";
-const CONTRACTOR_PRICING_APP_URL = "https://contractors.floorguardproductsmidwest.com/epoxy-twins-contractor-pricing-program-page";
-
-function tierTagToMembershipTier(planTag = "Free") {
-  if (planTag === "Tier 1") return "tier1";
-  if (planTag === "Tier 2") return "tier2";
-  return "free";
-}
-
-function membershipTierToPlanTag(tier = "free") {
-  if (tier === "tier1") return "Tier 1";
-  if (tier === "tier2") return "Tier 2";
-  return "Free";
-}
 
 function haystackIncludes(haystack, query) {
   if (!query) return true;
@@ -654,8 +648,8 @@ const SOLID_COLOR_OPTIONS = [
 const METALLIC_BASE_COAT_OPTIONS = ["Black", "White"];
 const METALLIC_PRIMER_TINT_OPTIONS = ["Gray", "Tan", "Clear"];
 
-const FREE_UNLOCKED_SYSTEMS = new Set(["FLK-ID-RES", "FLK-OD-RES", "SC-ID-EZ-CLEAN", "METALLIC-ID"]);
-const FREE_UNLOCKED_FINISHES = new Set(["flake", "solid", "metallic"]);
+const FREE_UNLOCKED_SYSTEMS = new Set(["FLK-OD-RES"]);
+const FREE_UNLOCKED_FINISHES = new Set(["flake"]);
 const ACTIVE_RELEASE_SYSTEMS = new Set(["FLK-OD-RES", "SC-ID-EZ-CLEAN", "METALLIC-ID"]);
 
 function getFullLocationSystemKeys(location) {
@@ -1278,14 +1272,23 @@ export default function App() {
   const [assignedPricingTierKey, setAssignedPricingTierKey] = useState("msrp");
   const [profileVersion, setProfileVersion] = useState(0);
   const [speed, setSpeed] = useState("");
-  const [phase, setPhase] = useState("questions"); // questions | results | submitted | account | userdb | orders | plans | floor-systems | customer-quotes
+  const [phase, setPhase] = useState("questions"); // questions | results | submitted | account | userdb | orders | plans | floor-systems | terms | privacy
   const [contractorName, setContractorName] = useState("");
   const [jobName, setJobName] = useState("");
   const [submittedDraft, setSubmittedDraft] = useState(null);
   const [customFloorSystems, setCustomFloorSystems] = useState([]);
   const [contractorVendors, setContractorVendors] = useState([]);
-  const [vendorPoStatus, setVendorPoStatus] = useState(""); // confirmation after email
-  const [vendorPoSending, setVendorPoSending] = useState(false);
+  const [contractorPricingModalOpen, setContractorPricingModalOpen] = useState(false);
+  const [contractorPricingForm, setContractorPricingForm] = useState({
+    companyName: "",
+    annualVolume: "",
+    contactName: "",
+    contactEmail: "",
+    contactPhone: "",
+    notes: "",
+  });
+  const [contractorPricingSubmitting, setContractorPricingSubmitting] = useState(false);
+  const [contractorPricingNotice, setContractorPricingNotice] = useState("");
   const [viewingOrder, setViewingOrder] = useState(null);
   const [orderJobs, setOrderJobs] = useState([]);
   const [session, setSession] = useState(null);
@@ -1368,8 +1371,10 @@ export default function App() {
         return "← Back to My Orders";
       case "floor-systems":
         return "← Back to My Floor Systems";
-      case "customer-quotes":
-        return "← Back to Customer Quotes";
+      case "terms":
+        return "← Back to Terms";
+      case "privacy":
+        return "← Back to Privacy";
       case "questions":
         return "← Back to job calculator";
       default:
@@ -1386,7 +1391,8 @@ export default function App() {
       return;
     }
     const tier = String(userProfileRef.current?.membership_tier || "free").toLowerCase();
-    if (tier !== "tier2") {
+    // Estimator (tier1) + Calculator (tier2)
+    if (tier !== "tier1" && tier !== "tier2") {
       setCustomFloorSystems([]);
       setContractorVendors([]);
       return;
@@ -1779,7 +1785,7 @@ export default function App() {
     const base = getApiBase();
     setCheckoutOverlay({
       status: "loading",
-      message: "Opening secure Stripe checkout for ECOS Tier 1 — The Calculator…",
+      message: "Opening secure Stripe checkout for ECOS Estimator…",
     });
     try {
       const res = await fetch(`${base}/api/create-checkout-session`, {
@@ -1788,7 +1794,7 @@ export default function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: "{}",
+        body: JSON.stringify({ product: "estimator" }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || res.statusText);
@@ -1802,6 +1808,43 @@ export default function App() {
     }
   }
 
+  async function startCalculatorCheckout() {
+    if (!session?.user?.id) {
+      window.alert("Please sign in to subscribe.");
+      return;
+    }
+    const { data: authData } = await supabase.auth.getSession();
+    const token = authData?.session?.access_token;
+    if (!token) {
+      window.alert("Please sign in again.");
+      return;
+    }
+    const base = getApiBase();
+    setCheckoutOverlay({
+      status: "loading",
+      message: "Opening secure Stripe checkout for ECOS Calculator…",
+    });
+    try {
+      const res = await fetch(`${base}/api/create-checkout-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ product: "calculator" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      if (!data.url) throw new Error("No checkout URL returned.");
+      window.location.assign(data.url);
+    } catch (e) {
+      setCheckoutOverlay({
+        status: "error",
+        message: e?.message || "Could not start Calculator checkout. Set STRIPE_CALCULATOR_PRICE_ID on Vercel.",
+      });
+    }
+  }
+
   async function openStripeCustomerPortal() {
     const { data: authData } = await supabase.auth.getSession();
     const token = authData?.session?.access_token;
@@ -1811,7 +1854,7 @@ export default function App() {
     }
     const cid = String(normalizeUserProfile(userProfile || {}).stripe_customer_id || "").trim();
     if (!cid) {
-      window.alert("No Stripe billing profile yet. Complete a Tier 1 subscription checkout first.");
+      window.alert("No Stripe billing profile yet. Complete an Estimator or Calculator subscription checkout first.");
       return;
     }
     const base = getApiBase();
@@ -1844,18 +1887,73 @@ export default function App() {
       setPhase("questions");
       return;
     }
-    if (planId === "tier1") {
+    if (planId === "tier1" || planId === "estimator") {
       await startTier1Checkout();
       return;
     }
-    const tier = planId === "tier2" ? "tier2" : "free";
+    if (planId === "tier2" || planId === "calculator") {
+      await startCalculatorCheckout();
+      return;
+    }
     try {
-      await updateProfileFields({ membership_tier: tier });
+      await updateProfileFields({ membership_tier: "free" });
     } catch {
       // Keep navigation responsive even if profile write is blocked.
     }
-    setCurrentPlan(membershipTierToPlanTag(tier));
+    setCurrentPlan("Free");
     setPhase("questions");
+  }
+
+  async function submitContractorPricingApplication() {
+    if (membershipTier === "free") {
+      setContractorPricingNotice("Upgrade to Estimator to apply.");
+      return;
+    }
+    const { companyName, annualVolume, contactName, contactEmail, contactPhone, notes } = contractorPricingForm;
+    if (!companyName.trim() || !contactName.trim() || !contactEmail.trim()) {
+      setContractorPricingNotice("Company name, contact name, and email are required.");
+      return;
+    }
+    const { data: authData } = await supabase.auth.getSession();
+    const token = authData?.session?.access_token;
+    if (!token) {
+      setContractorPricingNotice("Please sign in again.");
+      return;
+    }
+    setContractorPricingSubmitting(true);
+    setContractorPricingNotice("");
+    try {
+      const res = await fetch(`${getApiBase()}/api/send-contractor-pricing-application`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          companyName,
+          annualVolume,
+          contactName,
+          contactEmail,
+          contactPhone,
+          notes,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not submit application.");
+      await updateProfileFields({
+        contractorPricingApplicationReceived: true,
+        contractor_pricing_application_pending: true,
+        contractor_pricing_applied_at: json.submittedAt || new Date().toISOString(),
+        needsAdminReview: true,
+      });
+      setContractorPricingNotice("Application Pending — we'll review within 48 hours.");
+      showAppSuccessToast("✓ Application submitted — review within 48 hours");
+      setTimeout(() => setContractorPricingModalOpen(false), 1200);
+    } catch (e) {
+      setContractorPricingNotice(e?.message || "Submission failed.");
+    } finally {
+      setContractorPricingSubmitting(false);
+    }
   }
 
   const autoSystemKey = getRecommendedSystem(answers, currentPlan);
@@ -2380,7 +2478,7 @@ export default function App() {
           console.error(e);
         }
         setStripeBanner(
-          "Checkout complete. Tier 1 should unlock automatically; if your plan still shows Free after ~1 minute, refresh this page (Stripe webhooks finalize your profile)."
+          "Checkout complete. Your plan should unlock automatically; if it still shows Free after ~1 minute, refresh this page (Stripe webhooks finalize your profile)."
         );
       })();
     }
@@ -2692,6 +2790,13 @@ export default function App() {
   async function handleSubmitOrder() {
     if (!results || !recommendedSystem || !combinedTotals) return;
     if (poUsage.atLimit) return;
+    if (freeSavedJobLimitReached()) {
+      const upgrade = window.confirm(
+        `Job limit reached (${MAX_FREE_SAVED_JOBS} saved on Free). Archive older jobs or upgrade to Estimator for unlimited saves.`
+      );
+      if (upgrade) goToPlans("results");
+      return;
+    }
     if (activeSystemFamily === "flake" && baseCoatDeviatesFromFlakeRecommendation(answers.color, answers.baseCoatColor)) {
       const pick = answers.baseCoatColor || "this base coat color";
       const recs = getRecommendedBaseCoatLabels(answers.color);
@@ -2751,9 +2856,7 @@ export default function App() {
       totalDiscount: combinedTotals.totalDiscount,
       isCustom: !!recommendedSystem.isCustom,
       orderId: null,
-      vendorPoSentAt: null,
     });
-    setVendorPoStatus("");
     const isCustomQuote = !!recommendedSystem.isCustom;
     setOrderSubmitMessage(isCustomQuote ? "Saving custom system order…" : "Sending PO to FGP Midwest...");
     try {
@@ -2775,7 +2878,7 @@ export default function App() {
           console.error("[ECOS submit] email error", sendErr);
         }
       } else {
-        setOrderSubmitMessage("Custom system order saved — generate vendor POs below.");
+        setOrderSubmitMessage("Custom system order saved. Submit materials to FGP Midwest via My Orders when ready.");
       }
       if (session?.user?.id) {
         const jobs = jobsForPo;
@@ -2838,137 +2941,6 @@ export default function App() {
     }
   }
 
-  function getVendorGroupsForDraft(draft = submittedDraft) {
-    if (!draft?.isCustom) return [];
-    return groupLinesByVendor(draft.combinedOrderLines || [], contractorVendors);
-  }
-
-  function downloadVendorPoForGroup(group) {
-    const draft = submittedDraft;
-    if (!draft || !group) return;
-    const contractorDisplay =
-      [userProfile?.first_name, userProfile?.last_name].filter(Boolean).join(" ") ||
-      userProfile?.company_name ||
-      currentUser ||
-      "Contractor";
-    openVendorPoPrint({
-      contractorName: contractorDisplay,
-      companyName: userProfile?.company_name || contractorDisplay,
-      vendorName: group.vendorName,
-      vendorEmail: group.vendorEmail,
-      jobName: draft.jobNamePo,
-      address: draft.address,
-      systemName: draft.systemLabel || draft.systemCode,
-      sqFt: draft.sqFt,
-      lines: group.lines,
-      sentAt: draft.vendorPoSentAt,
-    });
-  }
-
-  async function emailVendorPoForGroup(group) {
-    const draft = submittedDraft;
-    if (!draft) {
-      setVendorPoStatus("No order draft found — submit the quote first.");
-      return;
-    }
-    if (!group?.vendorEmail) {
-      const msg = "This vendor has no email. Add one in My Floor Systems → Vendors.";
-      setVendorPoStatus(msg);
-      window.alert(msg);
-      return;
-    }
-    const contractorDisplay =
-      [userProfile?.first_name, userProfile?.last_name].filter(Boolean).join(" ") ||
-      userProfile?.company_name ||
-      currentUser ||
-      "Contractor";
-    const company = userProfile?.company_name || contractorDisplay;
-    const subject = `PO — ${company}`;
-    const body = buildVendorPoText({
-      contractorName: contractorDisplay,
-      companyName: company,
-      vendorName: group.vendorName,
-      vendorEmail: group.vendorEmail,
-      jobName: draft.jobNamePo,
-      address: draft.address,
-      systemName: draft.systemLabel || draft.systemCode,
-      sqFt: draft.sqFt,
-      lines: group.lines,
-    });
-    setVendorPoSending(true);
-    setVendorPoStatus(`Sending PO to ${group.vendorName || group.vendorEmail}…`);
-    try {
-      const { data: authData } = await supabase.auth.getSession();
-      const accessToken = authData?.session?.access_token || session?.access_token;
-      if (!accessToken) throw new Error("Session expired — log in again.");
-
-      console.info("[ECOS vendor-po] sending", {
-        vendorEmail: group.vendorEmail,
-        orderId: draft.orderId || null,
-        lines: group.lines?.length || 0,
-      });
-
-      const res = await fetch("/api/send-vendor-po", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          orderId: draft.orderId || null,
-          subject,
-          body,
-          vendorName: group.vendorName,
-          vendorEmail: group.vendorEmail,
-          contractorName: company,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      console.info("[ECOS vendor-po] response", { status: res.status, json });
-      if (!res.ok) throw new Error(json?.error || `Could not email vendor PO (${res.status}).`);
-
-      const sentAt = json.vendor_po_sent_at || new Date().toISOString();
-      const confirmMsg =
-        json.message || `Email sent to ${group.vendorName || group.vendorEmail} on ${new Date(sentAt).toLocaleString()}`;
-
-      setSubmittedDraft((prev) =>
-        prev
-          ? {
-              ...prev,
-              vendorPoSentAt: sentAt,
-              vendorName: group.vendorName,
-              vendorEmail: group.vendorEmail,
-            }
-          : prev
-      );
-      setVendorPoStatus(confirmMsg);
-      showAppSuccessToast(`✅ ${confirmMsg}`);
-
-      if (draft.orderId) {
-        setPoHistory((prev) =>
-          prev.map((o) =>
-            o.id === draft.orderId
-              ? {
-                  ...o,
-                  vendor_po_sent_at: sentAt,
-                  vendor_name: group.vendorName,
-                  vendor_email: group.vendorEmail,
-                  is_custom_system: true,
-                }
-              : o
-          )
-        );
-      }
-    } catch (e) {
-      console.error("[ECOS vendor-po] failed", e);
-      const errMsg = e?.message || "Vendor email failed.";
-      setVendorPoStatus(errMsg);
-      window.alert(errMsg);
-    } finally {
-      setVendorPoSending(false);
-    }
-  }
-
   async function handleForgotPassword() {
     setAuthError("");
     setAuthNotice("");
@@ -3009,7 +2981,7 @@ export default function App() {
     if (!results || !recommendedSystem) return;
     if (orderJobs.length + 1 >= maxActiveJobs) {
       if (membershipTier === "free") {
-        const wantsUpgrade = window.confirm("Upgrade to Tier 1 to save up to 10 jobs.");
+        const wantsUpgrade = window.confirm("Upgrade to Estimator for more jobs per PO and unlimited saved jobs.");
         if (wantsUpgrade) setPhase("plans");
       }
       return;
@@ -3026,6 +2998,13 @@ export default function App() {
       },
     ]);
     startNextJobInOrder();
+  }
+
+  function freeSavedJobLimitReached() {
+    if (membershipTier !== "free") return false;
+    const limit = getMaxSavedJobsForMembership("free") ?? MAX_FREE_SAVED_JOBS;
+    const savedCount = (poHistory?.length || 0) + (savedOrders?.length || 0);
+    return savedCount >= limit;
   }
 
   async function handleAuthSubmit() {
@@ -3157,7 +3136,7 @@ export default function App() {
   /** Tier 1+ Job Card: checklist, landscape, 2 cards/page (kit sizes from quote / PRODUCTS). */
   function printJobCard(orderRecord) {
     if (membershipTier === "free") {
-      const upgrade = window.confirm("Job Card printing is a Tier 1 feature. View plans?");
+      const upgrade = window.confirm("Job Card printing is an Estimator feature. View plans?");
       if (upgrade) setPhase("plans");
       return;
     }
@@ -3393,7 +3372,7 @@ export default function App() {
               Epoxy Twins · ECOS
             </div>
             <div style={{ fontSize: 18, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
-              Tier 1 — The Calculator
+              Estimator
             </div>
             <div style={{ fontSize: 12, color: "#d2def1", lineHeight: 1.5, marginBottom: 14, fontFamily: "'Open Sans', sans-serif" }}>
               {checkoutOverlay.message || "Preparing secure checkout…"}
@@ -3502,7 +3481,20 @@ export default function App() {
                       My Orders
                     </button>
                   )}
-                  {membershipTier === "tier2" && (
+                  {membershipTier === "free" && (
+                    <button
+                      type="button"
+                      style={{ background: "transparent", border: "1px solid #4b5563", color: "#6b7280", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
+                      onClick={() => {
+                        setHeaderMenuOpen(false);
+                        setPhase("orders");
+                      }}
+                      title="Upgrade to Estimator for full PO history"
+                    >
+                      My Orders 🔒
+                    </button>
+                  )}
+                  {(membershipTier === "tier1" || membershipTier === "tier2") && (
                     <button
                       type="button"
                       style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
@@ -3513,18 +3505,6 @@ export default function App() {
                       }}
                     >
                       My Floor Systems
-                    </button>
-                  )}
-                  {membershipTier === "tier2" && (
-                    <button
-                      type="button"
-                      style={{ background: "transparent", border: "1px solid #9bb2d1", color: "#d2def1", borderRadius: 4, fontSize: 9, padding: "3px 6px", cursor: "pointer" }}
-                      onClick={() => {
-                        setHeaderMenuOpen(false);
-                        setPhase("customer-quotes");
-                      }}
-                    >
-                      Customer Quotes
                     </button>
                   )}
                   <button
@@ -3642,13 +3622,13 @@ export default function App() {
                       <input type="checkbox" checked={authAgreedLegal} onChange={(e) => setAuthAgreedLegal(e.target.checked)} style={{ marginTop: 2 }} />
                       <span>
                         I agree to the{" "}
-                        <a href="https://contractors.floorguardproductsmidwest.com/terms-of-service-7261" target="_blank" rel="noreferrer" style={{ color: "#f5d676" }}>
+                        <button type="button" onClick={() => setPhase("terms")} style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit" }}>
                           Terms of Service
-                        </a>{" "}
+                        </button>{" "}
                         and{" "}
-                        <a href="https://contractors.floorguardproductsmidwest.com/privacy-policy-fgpmidwest" target="_blank" rel="noreferrer" style={{ color: "#f5d676" }}>
+                        <button type="button" onClick={() => setPhase("privacy")} style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit" }}>
                           Privacy Policy
-                        </a>
+                        </button>
                         .
                       </span>
                     </label>
@@ -3710,20 +3690,53 @@ export default function App() {
             <div style={{ fontSize: 11, color: "#d2def1", lineHeight: 1.5, marginBottom: 8 }}>
               You're currently on MSRP pricing. Apply for contractor pricing to unlock discounted material tiers once approved by FGP Midwest.
             </div>
-            <a
-              href={CONTRACTOR_PRICING_APP_URL}
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: "#f5d676", fontSize: 11, fontFamily: "'Montserrat', sans-serif", fontWeight: 900, textDecoration: "underline" }}
-            >
-              Apply for contractor pricing →
-            </a>
+            {membershipTier === "free" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <button type="button" disabled style={{ ...S.btnSm, opacity: 0.55, cursor: "not-allowed", borderColor: "#6b7280", color: "#9bb2d1" }}>
+                  Apply for Contractor Pricing
+                </button>
+                <div style={{ fontSize: 10, color: "#9bb2d1" }}>Upgrade to Estimator to apply</div>
+                <button type="button" style={{ ...S.btnSm, borderColor: "#eab308", color: "#f5d676" }} onClick={() => goToPlans(phase)}>
+                  View Estimator plans →
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                style={{ ...S.btnSm, borderColor: "#eab308", color: "#f5d676" }}
+                onClick={() => {
+                  setContractorPricingForm({
+                    companyName: userProfile?.company_name || "",
+                    annualVolume: "",
+                    contactName: [userProfile?.first_name, userProfile?.last_name].filter(Boolean).join(" "),
+                    contactEmail: userProfile?.email || currentUser || "",
+                    contactPhone: "",
+                    notes: "",
+                  });
+                  setContractorPricingNotice("");
+                  setContractorPricingModalOpen(true);
+                }}
+              >
+                Apply for Contractor Pricing →
+              </button>
+            )}
+            {userProfile?.contractor_pricing_application_pending && (
+              <div style={{ marginTop: 8, fontSize: 11, color: "#f5d676", fontWeight: 700 }}>
+                Application Pending — we'll review within 48 hours
+              </div>
+            )}
+            {userProfile?.fgpContractorPricingApproved && (
+              <div style={{ marginTop: 8, fontSize: 11, color: "#86efac", fontWeight: 700 }}>
+                You are a {TIERS[contractorPricingTierKey]?.label || "Contractor"} (
+                {Math.round((1 - (TIERS[contractorPricingTierKey]?.mult || 1)) * 100)}% off MSRP)
+              </div>
+            )}
           </div>
         )}
 
         {currentUser && phase === "questions" && (
           <>
-            {(membershipTier === "free" || membershipTier === "tier1") && (
+            {membershipTier === "free" && (
               <div
                 style={{
                   marginBottom: 10,
@@ -3753,7 +3766,7 @@ export default function App() {
                     fontWeight: 700,
                   }}
                 >
-                  Tier 2
+                  Estimator
                 </button>
               </div>
             )}
@@ -3905,7 +3918,7 @@ export default function App() {
                       }}
                     >
                       {option.label}
-                      {isLockedFinish ? " 🔒 Unlock Tier 1" : ""}
+                      {isLockedFinish ? " 🔒 Unlock Estimator" : ""}
                     </button>
                   );
                 })}
@@ -3926,7 +3939,7 @@ export default function App() {
                     </div>
                     <div style={{ fontSize: 13, color: "#d2def1", marginBottom: 10 }}>{recommendedSystem.label}</div>
                     <div style={{ fontSize: 12, color: "#f5d676", marginBottom: 10 }}>
-                      This system requires Tier 1 — The Calculator. Upgrade to unlock all 8 ET flooring systems.
+                      This system requires Estimator. Upgrade to unlock all 8 ET flooring systems.
                     </div>
                     <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setPhase("plans")}>
                       Upgrade to unlock
@@ -4167,7 +4180,7 @@ export default function App() {
                             </div>
                           )}
                           <div style={{ fontSize: 10, color: isLocked ? "#f5d676" : "#d2def1" }}>
-                            {isLocked ? "🔒 Unlock Tier 1" : "Tap to use this system instead"}
+                            {isLocked ? "🔒 Unlock Estimator" : "Tap to use this system instead"}
                           </div>
                         </button>
                       );
@@ -4199,12 +4212,12 @@ export default function App() {
                       }}
                     >
                       <div style={{ fontSize: 12, color: isTier1 ? "#9ca3af" : "#d1d5db", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, lineHeight: 1.4 }}>
-                        Don't like our systems? Build your own in Tier 2 — Upgrade to unlock custom system builder
+                        Don't like our systems? Build your own — Upgrade to Estimator for custom systems
                       </div>
                       <div style={{ fontSize: 10, color: canUpgrade ? "#f5d676" : "#9ca3af", marginTop: 4 }}>
                         {isTier1
-                          ? "🔒 Locked on Tier 1 — upgrade to Tier 2 to unlock"
-                          : "Tap to view Tier 2 upgrade options →"}
+                          ? "🔒 Locked on Free — upgrade to Estimator to unlock"
+                          : "Tap to view Estimator upgrade options →"}
                       </div>
                     </button>
                   );
@@ -4440,7 +4453,7 @@ export default function App() {
                 {isCustomActive
                   ? "Enter square footage to generate a material list for this custom system."
                   : isRecommendedSystemLocked
-                    ? "This recommendation is locked on Free. Upgrade to Tier 1 to continue with this system."
+                    ? "This recommendation is locked on Free. Upgrade to Estimator to continue with this system."
                     : "Complete refine answers, basecoat speed (outdoor), and color selection to continue."}
               </div>
             )}
@@ -4681,7 +4694,7 @@ export default function App() {
                 <>
                   <div style={{ fontSize: 11, color: "#9bb2d1", textAlign: "center" }}>
                     {membershipTier === "tier1"
-                      ? "Tier 1 limit: 10 active jobs. Archive or submit to add more."
+                      ? "Limit: 10 active jobs per PO. Archive or submit to add more."
                       : `Free plan limit reached (${MAX_FREE_JOBS} jobs max).`}
                   </div>
                   {membershipTier === "free" && (
@@ -4700,7 +4713,7 @@ export default function App() {
               </button>
               {membershipTier === "free" ? (
                 <button type="button" style={{ ...S.hookDisabled, width: "100%" }} disabled>
-                  Print Job Card (Upgrade to Tier 1, The Calculator)
+                  Print Job Card (Upgrade to Estimator)
                 </button>
               ) : (
                 <button type="button" style={{ ...S.btnSm, width: "100%", borderColor: "#9bb2d1" }} onClick={printJobCardFromQuote}>
@@ -4708,13 +4721,13 @@ export default function App() {
                 </button>
               )}
               {/*
-                ROADMAP — Tier 2 "The Estimator": CFO-backed profit tool. Inputs: material line list + tier $ from this
+                ROADMAP — Calculator: CFO-backed profit tool. Inputs: material line list + tier $ from this
                 screen (results.orderLines, combinedOrderLines, requiredMaterialTierTotal / costPer ft²), sell price &
                 labor assumptions from Estimator. Output: margin $, margin %, profit per job / consolidated PO.
                 Implement calculateJobProfit(...) and enable when currentPlan / subscription includes Estimator.
               */}
               <button type="button" style={{ ...S.hookDisabled, width: "100%" }} disabled>
-                Calculate profit (Upgrade to Tier 2 — The Estimator)
+                Calculate profit (Upgrade to Calculator)
               </button>
               {membershipTier === "tier1" && poCounterLabel && (
                 <div style={{ fontSize: 11, color: poUsage.atLimit ? "#fca5a5" : poUsage.atWarning ? "#f5d676" : "#9bb2d1", textAlign: "center" }}>
@@ -4725,7 +4738,7 @@ export default function App() {
                 <div style={{ ...S.card, border: "1px solid #e33433", background: "rgba(227, 52, 51, 0.12)", padding: 10 }}>
                   <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 900, marginBottom: 6 }}>PO limit reached</div>
                   <button type="button" style={{ ...S.btnSm, width: "100%", borderColor: "#e33433", color: "#fff" }} onClick={() => setPhase("plans")}>
-                    Upgrade to Tier 2 for unlimited
+                    Upgrade to Calculator for unlimited POs
                   </button>
                 </div>
               )}
@@ -4773,69 +4786,114 @@ export default function App() {
             </div>
 
             {submittedDraft.isCustom && (
-              <div style={{ ...S.card, border: "1px solid #113a72", marginTop: 4 }}>
-                <div style={{ fontSize: 13, color: "#fff", fontWeight: 900, marginBottom: 6 }}>Vendor POs</div>
-                <div style={{ fontSize: 11, color: "#9bb2d1", marginBottom: 10, lineHeight: 1.45 }}>
-                  Download a printable PDF or email the PO directly to each vendor. Contractor name is front & center; ECOS branding is in the footer.
-                </div>
-                {getVendorGroupsForDraft(submittedDraft).map((group) => (
-                  <div key={group.vendorId || "none"} style={{ borderTop: "1px solid #113a72", padding: "10px 0" }}>
-                    <div style={{ fontSize: 12, color: "#fff", fontWeight: 900 }}>{group.vendorName}</div>
-                    <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 8 }}>
-                      {group.vendorEmail || "No email on file"} · {group.lines.length} line(s)
-                    </div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button type="button" style={S.btnSm} onClick={() => downloadVendorPoForGroup(group)}>
-                        Download PDF
-                      </button>
-                      <button
-                        type="button"
-                        style={{
-                          ...S.btnSm,
-                          borderColor: "#e33433",
-                          color: "#fff",
-                          opacity: vendorPoSending || !group.vendorEmail ? 0.55 : 1,
-                        }}
-                        disabled={vendorPoSending}
-                        title={!group.vendorEmail ? "Assign a vendor with an email on the system layers first" : "Email PO to vendor"}
-                        onClick={() => void emailVendorPoForGroup(group)}
-                      >
-                        {vendorPoSending ? "Sending…" : "Email to vendor"}
-                      </button>
-                    </div>
-                    {!group.vendorEmail && (
-                      <div style={{ fontSize: 10, color: "#f5d676", marginTop: 6 }}>
-                        No vendor email on these layers — edit the system in My Floor Systems and assign a vendor.
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {vendorPoStatus && (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: /sent|email sent/i.test(vendorPoStatus) ? "#86efac" : /sending/i.test(vendorPoStatus) ? "#f5d676" : "#fca5a5",
-                    }}
-                  >
-                    {vendorPoStatus}
-                  </div>
-                )}
-                {submittedDraft.vendorPoSentAt && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: "#86efac" }}>
-                    PO sent to vendor on {new Date(submittedDraft.vendorPoSentAt).toLocaleString()}
-                  </div>
-                )}
+              <div style={{ ...S.card, border: "1px solid #113a72", marginTop: 4, fontSize: 11, color: "#9bb2d1", lineHeight: 1.5 }}>
+                Custom system order saved. Assign vendors in My Floor Systems for your own reference, then submit materials to FGP Midwest via My Orders.
               </div>
             )}
 
-            {membershipTier !== "tier2" && (
+            {membershipTier === "tier2" && (
+              <div style={{ ...S.card, border: "1px solid #eab308", marginTop: 4 }}>
+                <div style={{ fontSize: 13, color: "#fff", fontWeight: 900, marginBottom: 6 }}>Professional Estimate</div>
+                <div style={{ fontSize: 11, color: "#9bb2d1", marginBottom: 10, lineHeight: 1.45 }}>
+                  Export a branded estimate using your logo and brand colors from My Account. Customer PDF hides margin; contractor preview includes it.
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    style={S.btnSm}
+                    onClick={() =>
+                      openProfessionalEstimatePrint({
+                        profile: userProfile || {},
+                        job: {
+                          jobName: submittedDraft.jobNamePo,
+                          address: submittedDraft.address,
+                          systemCode: submittedDraft.systemCode,
+                          systemLabel: submittedDraft.systemLabel,
+                          sqFt: submittedDraft.sqFt,
+                        },
+                        materials: submittedDraft.combinedOrderLines || [],
+                        totals: {
+                          materials: submittedDraft.totalTier,
+                          labor: 0,
+                          total: submittedDraft.totalTier,
+                          margin: 0,
+                          marginPct: 0,
+                        },
+                      })
+                    }
+                  >
+                    Download PDF
+                  </button>
+                  <button
+                    type="button"
+                    style={S.btnSm}
+                    onClick={() =>
+                      void downloadProfessionalEstimateJpg({
+                        profile: userProfile || {},
+                        job: {
+                          jobName: submittedDraft.jobNamePo,
+                          address: submittedDraft.address,
+                          systemCode: submittedDraft.systemCode,
+                          systemLabel: submittedDraft.systemLabel,
+                          sqFt: submittedDraft.sqFt,
+                        },
+                        materials: submittedDraft.combinedOrderLines || [],
+                        totals: {
+                          materials: submittedDraft.totalTier,
+                          labor: 0,
+                          total: submittedDraft.totalTier,
+                          margin: 0,
+                          marginPct: 0,
+                        },
+                      })
+                    }
+                  >
+                    Save as JPG
+                  </button>
+                  <button
+                    type="button"
+                    style={{ ...S.btnSm, borderColor: "#eab308", color: "#f5d676" }}
+                    onClick={() =>
+                      openContractorEstimateWithMargin({
+                        profile: userProfile || {},
+                        job: {
+                          jobName: submittedDraft.jobNamePo,
+                          address: submittedDraft.address,
+                          systemCode: submittedDraft.systemCode,
+                          systemLabel: submittedDraft.systemLabel,
+                          sqFt: submittedDraft.sqFt,
+                        },
+                        materials: submittedDraft.combinedOrderLines || [],
+                        totals: {
+                          materials: submittedDraft.totalTier,
+                          labor: 0,
+                          total: submittedDraft.totalTier,
+                          margin: 0,
+                          marginPct: 0,
+                        },
+                      })
+                    }
+                  >
+                    Contractor preview (w/ margin)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {membershipTier === "free" && (
               <UpgradeUpsell
                 variant="calculator-submit"
                 btnSmStyle={S.btnSm}
                 onUpgrade={() => goToPlans("submitted")}
               />
+            )}
+            {membershipTier === "tier1" && (
+              <div style={{ ...S.card, border: "1px solid #113a72", marginBottom: 12, fontSize: 11, color: "#d2def1", lineHeight: 1.5 }}>
+                Want branded Professional Estimates?{" "}
+                <button type="button" onClick={() => goToPlans("submitted")} style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit", fontWeight: 700 }}>
+                  Upgrade to Calculator — $149/mo
+                </button>
+              </div>
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -4873,7 +4931,7 @@ export default function App() {
                   style={S.hookDisabled}
                   disabled
                 >
-                  Print Job Card (Upgrade to Tier 1, The Calculator)
+                  Print Job Card (Upgrade to Estimator)
                 </button>
               ) : (
                 <button
@@ -4899,7 +4957,7 @@ export default function App() {
                 style={S.hookDisabled}
                 disabled
               >
-                Customer-Ready Estimate PDF (Upgrade to Tier 2, The Estimator)
+                Professional Estimate (Upgrade to Calculator)
               </button>
               <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => goToPlans("submitted")}>
                 Upgrade Plans
@@ -4986,14 +5044,41 @@ export default function App() {
                 {!isCurrentUserPricingMaster && !activeUserProfile?.contractorPricingApplicationReceived && (
                   <div style={{ marginTop: 4, fontSize: 10, color: "#f5d676", lineHeight: 1.45 }}>
                     Apply for contractor pricing to get the most out of your account and material pricing.{" "}
-                    <a
-                      href={CONTRACTOR_PRICING_APP_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#f5d676", textDecoration: "underline", fontWeight: 700 }}
-                    >
-                      Apply now
-                    </a>
+                    {membershipTier === "free" ? (
+                      <button type="button" onClick={() => goToPlans("account")} style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit", fontWeight: 700 }}>
+                        Upgrade to Estimator to apply
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setContractorPricingForm({
+                            companyName: userProfile?.company_name || "",
+                            annualVolume: "",
+                            contactName: [userProfile?.first_name, userProfile?.last_name].filter(Boolean).join(" "),
+                            contactEmail: userProfile?.email || currentUser || "",
+                            contactPhone: "",
+                            notes: "",
+                          });
+                          setContractorPricingNotice("");
+                          setContractorPricingModalOpen(true);
+                        }}
+                        style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit", fontWeight: 700 }}
+                      >
+                        Apply now
+                      </button>
+                    )}
+                  </div>
+                )}
+                {activeUserProfile?.contractor_pricing_application_pending && !activeUserProfile?.fgpContractorPricingApproved && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: "#f5d676", fontWeight: 700 }}>
+                    Application Pending — we'll review within 48 hours
+                  </div>
+                )}
+                {activeUserProfile?.fgpContractorPricingApproved && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: "#86efac", fontWeight: 700 }}>
+                    You are a {TIERS[contractorPricingTierKey]?.label || "Contractor"} (
+                    {Math.round((1 - (TIERS[contractorPricingTierKey]?.mult || 1)) * 100)}% off MSRP)
                   </div>
                 )}
                 <div>
@@ -5072,7 +5157,7 @@ export default function App() {
               {(membershipTier === "free" || membershipTier === "tier1") && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <span style={{ color: "#eab308" }}>🔒</span>
-                  <span style={{ fontSize: 10, color: "#f5d676", fontWeight: 700 }}>Unlock in Tier 2</span>
+                  <span style={{ fontSize: 10, color: "#f5d676", fontWeight: 700 }}>Unlock in Calculator</span>
                 </div>
               )}
               <div style={{ display: "grid", gap: 8 }}>
@@ -5154,8 +5239,8 @@ export default function App() {
                             onChange={(e) => setAdminSelfPlanDraft(e.target.value)}
                           >
                             <option value="Free">Free</option>
-                            <option value="Tier 1">Tier 1 — The Calculator ($49/mo)</option>
-                            <option value="Tier 2">Tier 2 — The Estimator (coming soon)</option>
+                            <option value="Estimator">Estimator ($49/mo)</option>
+                            <option value="Calculator">Calculator ($149/mo)</option>
                           </select>
                         </div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -5426,8 +5511,8 @@ export default function App() {
                                   }
                                 >
                                   <option value="Free">Free</option>
-                                  <option value="Tier 1">Tier 1 — The Calculator ($49/mo)</option>
-                                  <option value="Tier 2">Tier 2 — The Estimator (coming soon)</option>
+                                  <option value="Estimator">Estimator ($49/mo)</option>
+                                  <option value="Calculator">Calculator ($149/mo)</option>
                                 </select>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -5545,7 +5630,10 @@ export default function App() {
             {membershipTier === "free" ? (
               <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.08)" }}>
                 <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
-                  Upgrade to Tier 1 for order history, Job Card printing, and unlimited POs in Tier 1.
+                  PO History (Upgrade to Estimator)
+                </div>
+                <div style={{ fontSize: 11, color: "#d2def1", marginBottom: 10, lineHeight: 1.45 }}>
+                  Upgrade to Estimator to see your full order history, Job Cards, and 50 POs/year.
                 </div>
                 <div style={{ filter: "blur(3px)", opacity: 0.7, pointerEvents: "none" }}>
                   {(poHistory.slice(0, 3).length ? poHistory.slice(0, 3) : [{ id: "locked1" }, { id: "locked2" }]).map((o, idx) => (
@@ -5560,7 +5648,7 @@ export default function App() {
                   ))}
                 </div>
                 <button type="button" style={{ ...S.btn, marginTop: 12 }} onClick={() => startTier1Checkout()}>
-                  Upgrade to Tier 1 — $49/mo
+                  Upgrade to Estimator — $49/mo
                 </button>
               </div>
             ) : (
@@ -5686,13 +5774,13 @@ export default function App() {
 
         {currentUser && phase === "floor-systems" && (
           <>
-            {membershipTier !== "tier2" ? (
+            {membershipTier !== "tier1" && membershipTier !== "tier2" ? (
               <div style={{ ...S.card, border: "1px solid #eab308" }}>
                 <div style={{ fontSize: 13, color: "#f5d676", fontWeight: 900, marginBottom: 8 }}>
-                  My Floor Systems is a Tier 2 feature
+                  My Floor Systems is an Estimator feature
                 </div>
                 <button type="button" style={S.btn} onClick={() => goToPlans("floor-systems")}>
-                  Upgrade to Tier 2
+                  Upgrade to Estimator — $49/mo
                 </button>
               </div>
             ) : (
@@ -5757,17 +5845,38 @@ export default function App() {
           </div>
         )}
 
-        {currentUser && phase === "customer-quotes" && (
+        {phase === "terms" && (
           <>
-            <div style={S.sectionHeadGold}>Customer Quotes</div>
-            <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.08)" }}>
-              <div style={{ fontSize: 13, color: "#f5d676", fontWeight: 900, marginBottom: 6 }}>Coming soon</div>
-              <div style={{ fontSize: 11, color: "#d2def1", lineHeight: 1.55 }}>
-                Send customized client estimates with your branding. This Tier 2 Estimator feature is next on the roadmap.
-              </div>
-              <button type="button" style={{ ...S.btnSm, marginTop: 12 }} onClick={goNewJobQuote}>
-                NEW JOB QUOTE
-              </button>
+            <button type="button" style={{ ...S.btnSm, width: "100%", marginBottom: 12 }} onClick={() => setPhase(currentUser ? "account" : "questions")}>
+              ← Back
+            </button>
+            <div style={S.sectionHeadGold}>Terms of Service</div>
+            <div style={{ ...S.card, fontSize: 11, color: "#d2def1", lineHeight: 1.55 }}>
+              <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 10 }}>Last updated: {TERMS_LAST_UPDATED} · Attorney-ready draft — have counsel review before launch.</div>
+              {TERMS_SECTIONS.map((sec) => (
+                <div key={sec.title} style={{ marginBottom: 14 }}>
+                  <div style={{ color: "#fff", fontWeight: 800, marginBottom: 4 }}>{sec.title}</div>
+                  <div>{sec.body}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {phase === "privacy" && (
+          <>
+            <button type="button" style={{ ...S.btnSm, width: "100%", marginBottom: 12 }} onClick={() => setPhase(currentUser ? "account" : "questions")}>
+              ← Back
+            </button>
+            <div style={S.sectionHeadGold}>Privacy Policy</div>
+            <div style={{ ...S.card, fontSize: 11, color: "#d2def1", lineHeight: 1.55 }}>
+              <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 10 }}>Last updated: {PRIVACY_LAST_UPDATED} · Attorney-ready draft — have counsel review before launch.</div>
+              {PRIVACY_SECTIONS.map((sec) => (
+                <div key={sec.title} style={{ marginBottom: 14 }}>
+                  <div style={{ color: "#fff", fontWeight: 800, marginBottom: 4 }}>{sec.title}</div>
+                  <div>{sec.body}</div>
+                </div>
+              ))}
             </div>
           </>
         )}
@@ -5796,13 +5905,12 @@ export default function App() {
               <div style={{ ...S.card, border: "1px solid #6b7280" }}>
                 <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Free</div>
                 <ul style={{ margin: "8px 0 12px 16px", color: "#d2def1", fontSize: 11, lineHeight: 1.5 }}>
-                  <li>Access to material calculator</li>
-                  <li>4 ET flooring systems (FLK-ID-RES, FLK-OD-RES, SC-ID-EZ CLEAN, METALLIC-ID)</li>
-                  <li>2 active jobs in cart</li>
-                  <li>Submit PO to FGP MIDWEST - 4 per mo. / 1 per week.</li>
-                  <li>No job history</li>
-                  <li>No job card printing</li>
-                  <li>No customer estimates</li>
+                  <li>Material calculator</li>
+                  <li>1 system: FLK-OD-RES only</li>
+                  <li>Up to 2 jobs per PO (bundled to FGP)</li>
+                  <li>~10 saved jobs</li>
+                  <li>View contractor pricing tiers (apply locked)</li>
+                  <li>No Professional Estimate · No custom systems</li>
                 </ul>
                 <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => chooseMembershipPlan("free")}>
                   Continue with Free Account
@@ -5810,39 +5918,30 @@ export default function App() {
               </div>
               <div style={{ ...S.cardGold, border: "2px solid #eab308" }}>
                 <div style={{ fontSize: 10, color: "#f5d676", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 6 }}>Recommended</div>
-                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Tier 1 ($49/mo)</div>
+                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Estimator ($49/mo)</div>
                 <ul style={{ margin: "8px 0 12px 16px", color: "#d2def1", fontSize: 11, lineHeight: 1.5 }}>
-                  <li>Everything in Free</li>
-                  <li>Unlock all 8 ET flooring systems</li>
-                  <li>10 active jobs in cart</li>
-                  <li>Submit PO to FGP Midwest - UNLIMITED</li>
-                  <li>50 POs saved per year</li>
-                  <li>PO history in My Orders</li>
-                  <li>Job Card printing (2 per page)</li>
+                  <li>All 8 ET flooring systems</li>
+                  <li>Custom systems builder</li>
+                  <li>Up to 10 jobs per PO · unlimited saved jobs</li>
+                  <li>50 PO submissions / year</li>
+                  <li>Full My Orders + Job Cards</li>
+                  <li>Apply for contractor pricing</li>
                 </ul>
-                <button
-                  type="button"
-                  style={{ ...S.btn, width: "100%", marginTop: 0 }}
-                  onClick={() => {
-                    console.log("BUTTON CLICKED");
-                    chooseMembershipPlan("tier1");
-                  }}
-                >
-                  Upgrade to Tier 1 — $49/mo
+                <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={() => chooseMembershipPlan("estimator")}>
+                  Upgrade to Estimator — $49/mo
                 </button>
               </div>
               <div style={{ ...S.card, border: "1px solid #113a72" }}>
-                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Tier 2 ($149/mo)</div>
+                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Calculator ($149/mo)</div>
                 <ul style={{ margin: "8px 0 12px 16px", color: "#d2def1", fontSize: 11, lineHeight: 1.5 }}>
-                  <li>Everything in Tier 1</li>
-                  <li>My Floor Systems — build &amp; reuse custom systems</li>
-                  <li>Vendor POs to any supplier</li>
-                  <li>Customer-facing branded estimates (coming soon)</li>
-                  <li>Logo upload + brand colors</li>
+                  <li>Everything in Estimator</li>
+                  <li>Professional Estimate export (PDF + JPG)</li>
+                  <li>Brand colors + logo on estimates</li>
                   <li>Unlimited POs / year</li>
+                  <li>Pricing guide + margin on contractor view</li>
                 </ul>
-                <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => chooseMembershipPlan("tier2")}>
-                  Upgrade to Tier 2 — $149/mo
+                <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => chooseMembershipPlan("calculator")}>
+                  Upgrade to Calculator — $149/mo
                 </button>
               </div>
             </div>
@@ -5886,16 +5985,55 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ marginTop: 14, textAlign: "center" }}>
-          <button
-            type="button"
-            onClick={handleFallbackLogout}
-            style={{ background: "transparent", border: "none", color: "#9bb2d1", textDecoration: "underline", cursor: "pointer", fontSize: 11 }}
-          >
-            Logout
+        <div style={{ marginTop: 18, textAlign: "center", display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
+          <button type="button" onClick={() => setPhase("terms")} style={{ background: "transparent", border: "none", color: "#9bb2d1", textDecoration: "underline", cursor: "pointer", fontSize: 11 }}>
+            Terms
           </button>
+          <button type="button" onClick={() => setPhase("privacy")} style={{ background: "transparent", border: "none", color: "#9bb2d1", textDecoration: "underline", cursor: "pointer", fontSize: 11 }}>
+            Privacy
+          </button>
+          {currentUser && (
+            <button
+              type="button"
+              onClick={handleFallbackLogout}
+              style={{ background: "transparent", border: "none", color: "#9bb2d1", textDecoration: "underline", cursor: "pointer", fontSize: 11 }}
+            >
+              Logout
+            </button>
+          )}
         </div>
       </div>
+
+      {contractorPricingModalOpen && (
+        <div style={S.modalOverlay}>
+          <div style={{ ...S.modalCard, maxWidth: 480, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 14, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Apply for Contractor Pricing</div>
+            <div style={{ fontSize: 11, color: "#9bb2d1", marginTop: 4, marginBottom: 12, lineHeight: 1.45 }}>
+              Submit for FGP Midwest review. After approval, your material tier updates live in ECOS.
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              <input style={S.input} placeholder="Company name *" value={contractorPricingForm.companyName} onChange={(e) => setContractorPricingForm((f) => ({ ...f, companyName: e.target.value }))} />
+              <input style={S.input} placeholder="Annual order volume estimate" value={contractorPricingForm.annualVolume} onChange={(e) => setContractorPricingForm((f) => ({ ...f, annualVolume: e.target.value }))} />
+              <input style={S.input} placeholder="Contact name *" value={contractorPricingForm.contactName} onChange={(e) => setContractorPricingForm((f) => ({ ...f, contactName: e.target.value }))} />
+              <input style={S.input} placeholder="Contact email *" value={contractorPricingForm.contactEmail} onChange={(e) => setContractorPricingForm((f) => ({ ...f, contactEmail: e.target.value }))} />
+              <input style={S.input} placeholder="Contact phone" value={contractorPricingForm.contactPhone} onChange={(e) => setContractorPricingForm((f) => ({ ...f, contactPhone: e.target.value }))} />
+              <textarea style={{ ...S.input, minHeight: 72 }} placeholder="Notes (optional)" value={contractorPricingForm.notes} onChange={(e) => setContractorPricingForm((f) => ({ ...f, notes: e.target.value }))} />
+            </div>
+            {contractorPricingNotice && <div style={{ marginTop: 8, fontSize: 11, color: "#f5d676" }}>{contractorPricingNotice}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button type="button" style={{ ...S.btnSm, flex: 1 }} onClick={() => setContractorPricingModalOpen(false)}>Cancel</button>
+              <button
+                type="button"
+                style={{ ...S.btn, flex: 1, marginTop: 0 }}
+                disabled={contractorPricingSubmitting}
+                onClick={() => void submitContractorPricingApplication()}
+              >
+                {contractorPricingSubmitting ? "Submitting…" : "Submit application"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

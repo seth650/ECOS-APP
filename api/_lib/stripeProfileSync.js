@@ -1,5 +1,6 @@
 /**
  * Shared Stripe ↔ Supabase profile updates (used by webhooks + post-checkout sync).
+ * Membership: free | tier1 (Estimator $49) | tier2 (Calculator $149)
  */
 
 /** Stripe unix seconds → ISO string; omit field when missing/invalid (avoids Invalid time value). */
@@ -13,6 +14,29 @@ export function stripePeriodEndIso(unixSeconds) {
 export function tierFromSubscriptionStatus(status) {
   if (status === "active" || status === "trialing") return "tier1";
   return undefined;
+}
+
+/**
+ * Resolve membership_tier from Stripe subscription metadata / price IDs.
+ * ecos_tier1 / STRIPE_PRICE_ID → Estimator (tier1)
+ * ecos_tier2 / STRIPE_CALCULATOR_PRICE_ID → Calculator (tier2)
+ */
+export function membershipTierFromSubscription(sub) {
+  if (!sub || (sub.status !== "active" && sub.status !== "trialing")) return undefined;
+  const metaProduct = String(sub.metadata?.product || "").toLowerCase();
+  if (metaProduct === "ecos_tier2" || metaProduct === "ecos_calculator") return "tier2";
+  if (metaProduct === "ecos_tier1" || metaProduct === "ecos_estimator") return "tier1";
+
+  const calculatorPrice = process.env.STRIPE_CALCULATOR_PRICE_ID || "";
+  const estimatorPrice = process.env.STRIPE_PRICE_ID || "";
+  const items = sub.items?.data || [];
+  for (const item of items) {
+    const priceId = typeof item.price === "string" ? item.price : item.price?.id;
+    if (calculatorPrice && priceId === calculatorPrice) return "tier2";
+    if (estimatorPrice && priceId === estimatorPrice) return "tier1";
+  }
+  // Default paid subscription → Estimator
+  return "tier1";
 }
 
 export async function applySubscriptionToUserProfile(admin, userId, patch) {
@@ -45,7 +69,14 @@ export async function syncProfileFromCheckoutSession(stripe, admin, sessionId) {
   if (!customerId) {
     return { ok: false, reason: "missing_customer" };
   }
-  const tier = tierFromSubscriptionStatus(sub.status);
+
+  // Prefer checkout session metadata product, then subscription resolution
+  let tier;
+  const sessionProduct = String(session.metadata?.product || "").toLowerCase();
+  if (sessionProduct === "ecos_tier2" || sessionProduct === "ecos_calculator") tier = "tier2";
+  else if (sessionProduct === "ecos_tier1" || sessionProduct === "ecos_estimator") tier = "tier1";
+  else tier = membershipTierFromSubscription(sub);
+
   const patch = {
     stripe_customer_id: customerId,
     stripe_subscription_id: sub.id,
@@ -59,7 +90,7 @@ export async function syncProfileFromCheckoutSession(stripe, admin, sessionId) {
   }
   const { error } = await applySubscriptionToUserProfile(admin, userId, patch);
   if (error) return { ok: false, reason: error.message };
-  return { ok: true };
+  return { ok: true, membership_tier: tier };
 }
 
 export async function updateProfileByStripeCustomer(admin, customerId, patch) {

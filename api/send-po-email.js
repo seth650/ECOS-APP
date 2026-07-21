@@ -300,7 +300,7 @@ export default async function handler(req, res) {
 
     if (isTier1PoLimitReached(poProfile)) {
       return res.status(403).json({
-        error: `PO limit reached (${MAX_TIER1_POS_PER_YEAR} per year). Upgrade to Tier 2 for unlimited submissions.`,
+        error: `PO limit reached (${MAX_TIER1_POS_PER_YEAR} per year). Upgrade to Calculator for unlimited submissions.`,
         code: "PO_LIMIT_REACHED",
         annual_po_count: poProfile.annual_po_count,
         limit: MAX_TIER1_POS_PER_YEAR,

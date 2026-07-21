@@ -19,7 +19,40 @@ const DIAGRAM_NOTE =
   "Epoxy Twins can create a professional 3D cutaway for your system for $49. Processing time: 5–7 business days.";
 
 const IP_NOTE =
-  "Systems created in ECOS are owned by Epoxy Twins LLC. You retain usage rights for your business. Attorney audit required — add to Terms of Service before launch.";
+  "Systems created in ECOS are owned by Epoxy Twins LLC. You retain usage rights for your business (see Terms of Service). Vendors you add are for personal tracking only — material orders go to FGP Midwest via My Orders.";
+
+function VendorToast({ message, onDone }) {
+  useEffect(() => {
+    if (!message) return undefined;
+    const t = setTimeout(onDone, 3000);
+    return () => clearTimeout(t);
+  }, [message, onDone]);
+  if (!message) return null;
+  return (
+    <div
+      role="status"
+      style={{
+        position: "fixed",
+        bottom: 24,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 12000,
+        background: "#e33433",
+        color: "#fff",
+        padding: "12px 18px",
+        borderRadius: 8,
+        fontSize: 13,
+        fontWeight: 800,
+        fontFamily: "'Montserrat', sans-serif",
+        boxShadow: "0 10px 28px rgba(227,52,51,0.45)",
+        maxWidth: "90vw",
+        textAlign: "center",
+      }}
+    >
+      {message}
+    </div>
+  );
+}
 
 function SkeletonBlock({ S, lines = 3 }) {
   return (
@@ -50,6 +83,9 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [vendorToast, setVendorToast] = useState("");
+  const clearVendorToast = useCallback(() => setVendorToast(""), []);
+  const showVendorToast = useCallback((text) => setVendorToast(text), []);
 
   const [editingId, setEditingId] = useState(null);
   const [systemName, setSystemName] = useState("");
@@ -266,6 +302,7 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
         setVendorPhone("");
         setEditingVendorId(null);
         setMessage("Vendor updated.");
+        showVendorToast(`✓ Vendor updated: ${name}`);
         await loadAll({ quiet: true });
         return data;
       }
@@ -280,15 +317,19 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
         setInlineVendorEmail("");
         setInlineVendorPhone("");
         if (inlineVendorForLayer != null && data?.id) {
+          const layerLabel = layers[inlineVendorForLayer]?.type || layers[inlineVendorForLayer]?.name || "layer";
           updateLayer(inlineVendorForLayer, { vendorId: data.id });
+          showVendorToast(`✓ Vendor assigned to ${layerLabel}`);
         }
         setInlineVendorForLayer(null);
         setMessage(`Vendor "${name}" added.`);
+        showVendorToast(`✓ Vendor saved: ${name}`);
       } else {
         setVendorName("");
         setVendorEmail("");
         setVendorPhone("");
         setMessage("Vendor added.");
+        showVendorToast(`✓ Vendor saved: ${name}`);
       }
       await loadAll({ quiet: true });
       return data;
@@ -349,9 +390,10 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
 
   return (
     <div>
+      <VendorToast message={vendorToast} onDone={clearVendorToast} />
       <div style={S.sectionHead}>My Floor Systems</div>
       <div style={{ fontSize: 11, color: "#9bb2d1", marginBottom: 12, lineHeight: 1.5 }}>
-        Build reusable custom systems, assign vendors, and use them in the calculator. Tier 2+ only.
+        Build reusable custom systems and assign vendors for your own reference. Material orders go to FGP Midwest via My Orders — vendor contacts are personal tracking only.
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
@@ -688,6 +730,12 @@ export default function MyFloorSystems({ styles: S, session, userProfile, onSyst
                               return;
                             }
                             updateLayer(idx, { vendorId: v });
+                            if (v) {
+                              const vName = vendors.find((x) => x.id === v)?.name || "Vendor";
+                              const layerLabel = layer.type || layer.name || "layer";
+                              showVendorToast(`✓ Vendor assigned to ${layerLabel}`);
+                              void vName;
+                            }
                           }}
                         >
                           {vendorOptions.map((v) => (

@@ -1,8 +1,18 @@
-/** Tier 1 annual PO submission cap (calculator + material orders). */
-export const MAX_TIER1_POS_PER_YEAR = 50;
+/** Estimator (tier1) annual PO submission cap. Calculator (tier2) is unlimited. */
+export const MAX_ESTIMATOR_POS_PER_YEAR = 50;
+/** @deprecated Use MAX_ESTIMATOR_POS_PER_YEAR */
+export const MAX_TIER1_POS_PER_YEAR = MAX_ESTIMATOR_POS_PER_YEAR;
+
 export const PO_WARNING_THRESHOLD = 45;
-export const MAX_TIER1_JOBS = 10;
+
+/** Jobs allowed in one PO / cart bundle. */
 export const MAX_FREE_JOBS = 2;
+export const MAX_ESTIMATOR_JOBS = 10;
+/** @deprecated Use MAX_ESTIMATOR_JOBS */
+export const MAX_TIER1_JOBS = MAX_ESTIMATOR_JOBS;
+
+/** Account-level saved job history for Free. Estimator+ is unlimited. */
+export const MAX_FREE_SAVED_JOBS = 10;
 
 export function normalizePoProfileFields(profile = {}) {
   const p = { ...profile };
@@ -53,20 +63,36 @@ export function formatPoResetDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** Membership helpers — internal keys stay free / tier1 / tier2. */
+export function isEstimatorMembership(tier = "free") {
+  return String(tier || "free").toLowerCase() === "tier1";
+}
+
+export function isCalculatorMembership(tier = "free") {
+  return String(tier || "free").toLowerCase() === "tier2";
+}
+
+export function isPaidMembership(tier = "free") {
+  const t = String(tier || "free").toLowerCase();
+  return t === "tier1" || t === "tier2";
+}
+
 export function getTier1PoStatus(profile = {}) {
   const reset = applyPoYearResetIfNeeded(profile);
   const membership = String(profile.membership_tier || "free").toLowerCase();
   const count = reset.annual_po_count;
-  const isTier1 = membership === "tier1";
-  const isTier2 = membership === "tier2";
+  const isEstimator = membership === "tier1";
+  const isCalculator = membership === "tier2";
   return {
     count,
-    limit: MAX_TIER1_POS_PER_YEAR,
-    isTier1,
-    isTier2,
+    limit: MAX_ESTIMATOR_POS_PER_YEAR,
+    isTier1: isEstimator,
+    isTier2: isCalculator,
+    isEstimator,
+    isCalculator,
     isFree: membership === "free",
-    atLimit: isTier1 && count >= MAX_TIER1_POS_PER_YEAR,
-    atWarning: isTier1 && count >= PO_WARNING_THRESHOLD && count < MAX_TIER1_POS_PER_YEAR,
+    atLimit: isEstimator && count >= MAX_ESTIMATOR_POS_PER_YEAR,
+    atWarning: isEstimator && count >= PO_WARNING_THRESHOLD && count < MAX_ESTIMATOR_POS_PER_YEAR,
     resetDate: reset.windowEnd,
     resetDateLabel: formatPoResetDate(reset.windowEnd),
     po_year_start_date: reset.po_year_start_date,
@@ -77,15 +103,24 @@ export function getTier1PoStatus(profile = {}) {
 
 export function getPoCounterLabel(status) {
   if (!status) return "";
-  if (status.isTier2) return "Unlimited POs (Tier 2)";
-  if (status.isFree) return "Unlimited POs in Tier 1";
-  if (status.isTier1) {
-    return `${status.count} of ${status.limit} POs used (resets ${status.resetDateLabel})`;
+  if (status.isCalculator || status.isTier2) return "Unlimited POs";
+  if (status.isFree) return "Upgrade to Estimator for PO history + 50 POs/year";
+  if (status.isEstimator || status.isTier1) {
+    return `${status.count} of ${status.limit} POs used this year (resets ${status.resetDateLabel})`;
   }
   return "";
 }
 
+/** Max jobs in the active cart / PO bundle. */
 export function getMaxJobsForMembershipTier(tier = "free") {
-  if (tier === "tier2") return MAX_TIER1_JOBS;
-  return tier === "tier1" ? MAX_TIER1_JOBS : MAX_FREE_JOBS;
+  const t = String(tier || "free").toLowerCase();
+  if (t === "tier1" || t === "tier2") return MAX_ESTIMATOR_JOBS;
+  return MAX_FREE_JOBS;
+}
+
+/** Account-level saved job / order history limit. null = unlimited. */
+export function getMaxSavedJobsForMembership(tier = "free") {
+  const t = String(tier || "free").toLowerCase();
+  if (t === "tier1" || t === "tier2") return null;
+  return MAX_FREE_SAVED_JOBS;
 }

@@ -6,6 +6,7 @@ import {
   applySubscriptionToUserProfile,
   updateProfileByStripeSubscription,
   stripePeriodEndIso,
+  membershipTierFromSubscription,
 } from "./_lib/stripeProfileSync.js";
 import { sendGraceEmail } from "./_lib/sendGraceEmail.js";
 
@@ -71,8 +72,9 @@ export default async function handler(req, res) {
         const subId = invoice.subscription;
         if (!subId) break;
         const sub = await stripe.subscriptions.retrieve(subId);
+        const tier = membershipTierFromSubscription(sub) || "tier1";
         await updateProfileByStripeSubscription(admin, sub.id, {
-          membership_tier: "tier1",
+          membership_tier: tier,
           subscription_status: sub.status,
           subscription_current_period_end: stripePeriodEndIso(sub.current_period_end),
           grace_period_start: null,
@@ -107,10 +109,13 @@ export default async function handler(req, res) {
       }
       case "customer.subscription.updated": {
         const sub = event.data.object;
-        await updateProfileByStripeSubscription(admin, sub.id, {
+        const patch = {
           subscription_status: sub.status,
           subscription_current_period_end: stripePeriodEndIso(sub.current_period_end),
-        });
+        };
+        const tier = membershipTierFromSubscription(sub);
+        if (tier) patch.membership_tier = tier;
+        await updateProfileByStripeSubscription(admin, sub.id, patch);
         break;
       }
       case "customer.subscription.deleted": {
