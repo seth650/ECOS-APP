@@ -146,7 +146,7 @@ export default function MaterialOrderForm({
       return;
     }
     if (poBlocked) {
-      setMessage("PO limit reached — upgrade to Calculator for unlimited submissions.");
+      setMessage("PO limit reached — upgrade to Estimator for unlimited submissions.");
       return;
     }
     if (!session?.user?.id) {
@@ -513,7 +513,7 @@ export default function MaterialOrderForm({
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 900, marginBottom: 6 }}>PO limit reached</div>
               <button type="button" style={{ ...S.btnSm, borderColor: "#e33433", color: "#fff" }} onClick={() => onUpgrade?.()}>
-                Upgrade to Calculator for unlimited
+                Upgrade to Estimator for unlimited
               </button>
             </div>
           )}

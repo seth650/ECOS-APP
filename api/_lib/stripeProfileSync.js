@@ -1,6 +1,6 @@
 /**
  * Shared Stripe ↔ Supabase profile updates (used by webhooks + post-checkout sync).
- * Membership: free | tier1 (Estimator $49) | tier2 (Calculator $149)
+ * Membership: free | tier1 (Calculator $49) | tier2 (Estimator $149)
  */
 
 /** Stripe unix seconds → ISO string; omit field when missing/invalid (avoids Invalid time value). */
@@ -18,24 +18,25 @@ export function tierFromSubscriptionStatus(status) {
 
 /**
  * Resolve membership_tier from Stripe subscription metadata / price IDs.
- * ecos_tier1 / STRIPE_PRICE_ID → Estimator (tier1)
- * ecos_tier2 / STRIPE_CALCULATOR_PRICE_ID → Calculator (tier2)
+ * ecos_tier1 / STRIPE_PRICE_ID → Calculator (tier1 / $49)
+ * ecos_tier2 / STRIPE_ESTIMATOR_PRICE_ID (or legacy STRIPE_CALCULATOR_PRICE_ID) → Estimator (tier2 / $149)
  */
 export function membershipTierFromSubscription(sub) {
   if (!sub || (sub.status !== "active" && sub.status !== "trialing")) return undefined;
   const metaProduct = String(sub.metadata?.product || "").toLowerCase();
-  if (metaProduct === "ecos_tier2" || metaProduct === "ecos_calculator") return "tier2";
-  if (metaProduct === "ecos_tier1" || metaProduct === "ecos_estimator") return "tier1";
+  if (metaProduct === "ecos_tier2" || metaProduct === "ecos_estimator") return "tier2";
+  if (metaProduct === "ecos_tier1" || metaProduct === "ecos_calculator") return "tier1";
 
-  const calculatorPrice = process.env.STRIPE_CALCULATOR_PRICE_ID || "";
-  const estimatorPrice = process.env.STRIPE_PRICE_ID || "";
+  const estimatorPrice =
+    process.env.STRIPE_ESTIMATOR_PRICE_ID || process.env.STRIPE_CALCULATOR_PRICE_ID || "";
+  const calculatorPrice = process.env.STRIPE_PRICE_ID || "";
   const items = sub.items?.data || [];
   for (const item of items) {
     const priceId = typeof item.price === "string" ? item.price : item.price?.id;
-    if (calculatorPrice && priceId === calculatorPrice) return "tier2";
-    if (estimatorPrice && priceId === estimatorPrice) return "tier1";
+    if (estimatorPrice && priceId === estimatorPrice) return "tier2";
+    if (calculatorPrice && priceId === calculatorPrice) return "tier1";
   }
-  // Default paid subscription → Estimator
+  // Default paid subscription → Calculator ($49)
   return "tier1";
 }
 
@@ -70,11 +71,10 @@ export async function syncProfileFromCheckoutSession(stripe, admin, sessionId) {
     return { ok: false, reason: "missing_customer" };
   }
 
-  // Prefer checkout session metadata product, then subscription resolution
   let tier;
   const sessionProduct = String(session.metadata?.product || "").toLowerCase();
-  if (sessionProduct === "ecos_tier2" || sessionProduct === "ecos_calculator") tier = "tier2";
-  else if (sessionProduct === "ecos_tier1" || sessionProduct === "ecos_estimator") tier = "tier1";
+  if (sessionProduct === "ecos_tier2" || sessionProduct === "ecos_estimator") tier = "tier2";
+  else if (sessionProduct === "ecos_tier1" || sessionProduct === "ecos_calculator") tier = "tier1";
   else tier = membershipTierFromSubscription(sub);
 
   const patch = {

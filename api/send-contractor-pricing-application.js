@@ -54,7 +54,7 @@ export default async function handler(req, res) {
   const membership = String(profile?.membership_tier || "free").toLowerCase();
   if (membership === "free") {
     return res.status(403).json({
-      error: "Upgrade to Estimator to apply for contractor pricing.",
+      error: "Upgrade to Calculator to apply for contractor pricing.",
       code: "UPGRADE_REQUIRED",
     });
   }

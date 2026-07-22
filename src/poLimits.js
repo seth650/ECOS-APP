@@ -1,17 +1,21 @@
-/** Estimator (tier1) annual PO submission cap. Calculator (tier2) is unlimited. */
-export const MAX_ESTIMATOR_POS_PER_YEAR = 50;
-/** @deprecated Use MAX_ESTIMATOR_POS_PER_YEAR */
-export const MAX_TIER1_POS_PER_YEAR = MAX_ESTIMATOR_POS_PER_YEAR;
+/** Calculator (tier1 / $49) annual PO submission cap. Estimator (tier2 / $149) is unlimited. */
+export const MAX_CALCULATOR_POS_PER_YEAR = 50;
+/** @deprecated Use MAX_CALCULATOR_POS_PER_YEAR */
+export const MAX_ESTIMATOR_POS_PER_YEAR = MAX_CALCULATOR_POS_PER_YEAR;
+/** @deprecated Use MAX_CALCULATOR_POS_PER_YEAR */
+export const MAX_TIER1_POS_PER_YEAR = MAX_CALCULATOR_POS_PER_YEAR;
 
 export const PO_WARNING_THRESHOLD = 45;
 
 /** Jobs allowed in one PO / cart bundle. */
 export const MAX_FREE_JOBS = 2;
-export const MAX_ESTIMATOR_JOBS = 10;
-/** @deprecated Use MAX_ESTIMATOR_JOBS */
-export const MAX_TIER1_JOBS = MAX_ESTIMATOR_JOBS;
+export const MAX_CALCULATOR_JOBS = 10;
+/** @deprecated Use MAX_CALCULATOR_JOBS */
+export const MAX_ESTIMATOR_JOBS = MAX_CALCULATOR_JOBS;
+/** @deprecated Use MAX_CALCULATOR_JOBS */
+export const MAX_TIER1_JOBS = MAX_CALCULATOR_JOBS;
 
-/** Account-level saved job history for Free. Estimator+ is unlimited. */
+/** Account-level saved job history for Free. Calculator+ is unlimited. */
 export const MAX_FREE_SAVED_JOBS = 10;
 
 export function normalizePoProfileFields(profile = {}) {
@@ -64,11 +68,11 @@ export function formatPoResetDate(iso) {
 }
 
 /** Membership helpers — internal keys stay free / tier1 / tier2. */
-export function isEstimatorMembership(tier = "free") {
+export function isCalculatorMembership(tier = "free") {
   return String(tier || "free").toLowerCase() === "tier1";
 }
 
-export function isCalculatorMembership(tier = "free") {
+export function isEstimatorMembership(tier = "free") {
   return String(tier || "free").toLowerCase() === "tier2";
 }
 
@@ -81,18 +85,18 @@ export function getTier1PoStatus(profile = {}) {
   const reset = applyPoYearResetIfNeeded(profile);
   const membership = String(profile.membership_tier || "free").toLowerCase();
   const count = reset.annual_po_count;
-  const isEstimator = membership === "tier1";
-  const isCalculator = membership === "tier2";
+  const isCalculator = membership === "tier1";
+  const isEstimator = membership === "tier2";
   return {
     count,
-    limit: MAX_ESTIMATOR_POS_PER_YEAR,
-    isTier1: isEstimator,
-    isTier2: isCalculator,
-    isEstimator,
+    limit: MAX_CALCULATOR_POS_PER_YEAR,
+    isTier1: isCalculator,
+    isTier2: isEstimator,
     isCalculator,
+    isEstimator,
     isFree: membership === "free",
-    atLimit: isEstimator && count >= MAX_ESTIMATOR_POS_PER_YEAR,
-    atWarning: isEstimator && count >= PO_WARNING_THRESHOLD && count < MAX_ESTIMATOR_POS_PER_YEAR,
+    atLimit: isCalculator && count >= MAX_CALCULATOR_POS_PER_YEAR,
+    atWarning: isCalculator && count >= PO_WARNING_THRESHOLD && count < MAX_CALCULATOR_POS_PER_YEAR,
     resetDate: reset.windowEnd,
     resetDateLabel: formatPoResetDate(reset.windowEnd),
     po_year_start_date: reset.po_year_start_date,
@@ -103,9 +107,9 @@ export function getTier1PoStatus(profile = {}) {
 
 export function getPoCounterLabel(status) {
   if (!status) return "";
-  if (status.isCalculator || status.isTier2) return "Unlimited POs";
-  if (status.isFree) return "Upgrade to Estimator for PO history + 50 POs/year";
-  if (status.isEstimator || status.isTier1) {
+  if (status.isEstimator || status.isTier2) return "Unlimited POs";
+  if (status.isFree) return "Upgrade to Calculator for PO history + 50 POs/year";
+  if (status.isCalculator || status.isTier1) {
     return `${status.count} of ${status.limit} POs used this year (resets ${status.resetDateLabel})`;
   }
   return "";
@@ -114,7 +118,7 @@ export function getPoCounterLabel(status) {
 /** Max jobs in the active cart / PO bundle. */
 export function getMaxJobsForMembershipTier(tier = "free") {
   const t = String(tier || "free").toLowerCase();
-  if (t === "tier1" || t === "tier2") return MAX_ESTIMATOR_JOBS;
+  if (t === "tier1" || t === "tier2") return MAX_CALCULATOR_JOBS;
   return MAX_FREE_JOBS;
 }
 

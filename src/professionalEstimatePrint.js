@@ -1,5 +1,5 @@
 /**
- * Professional Estimate scaffold (Calculator tier).
+ * Professional Estimate scaffold (Estimator tier / $149).
  * PDF via print dialog; JPG via canvas capture of the estimate surface.
  * Template layout polish is post-MVP — core export ships here.
  */

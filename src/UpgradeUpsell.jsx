@@ -1,6 +1,6 @@
 /**
  * Subtle navy/red upgrade prompts — Amazon-style, not aggressive.
- * Reframed for Free / Estimator ($49) / Calculator ($149). No vendor-PO or unshipped estimate promos.
+ * Free / Calculator ($49) / Estimator ($149). No vendor-PO or unshipped estimate promos.
  */
 import { useState } from "react";
 
@@ -68,7 +68,7 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
   if (variant === "calculator-submit") {
     return (
       <div style={cardBase}>
-        <div style={titleStyle}>Unlock Estimator</div>
+        <div style={titleStyle}>Unlock Calculator</div>
         <ul style={{ margin: "0 0 8px 0", padding: 0, listStyle: "none" }}>
           <li style={bulletStyle}>• All 8 ET flooring systems</li>
           <li style={bulletStyle}>• Custom systems builder</li>
@@ -76,7 +76,7 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
           <li style={bulletStyle}>• Apply for contractor pricing</li>
         </ul>
         <button type="button" style={ctaBtn} onClick={onUpgrade}>
-          → Upgrade to Estimator — $49/mo
+          → Upgrade to Calculator — $49/mo
         </button>
       </div>
     );
@@ -93,10 +93,10 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
         }}
       >
         <div style={{ ...bodyStyle, color: "#e8d48a", marginBottom: 10 }}>
-          Estimator limit: 50 POs/year. Upgrade to Calculator for unlimited POs + Professional Estimates.
+          Calculator limit: 50 POs/year. Upgrade to Estimator for unlimited POs + Professional Estimates.
         </div>
         <button type="button" style={{ ...ctaBtn, borderColor: "#eab308" }} onClick={onUpgrade}>
-          → Upgrade to Calculator — $149/mo
+          → Upgrade to Estimator — $149/mo
         </button>
       </div>
     );
@@ -108,11 +108,11 @@ export default function UpgradeUpsell({ variant, onUpgrade, btnSmStyle = {} }) {
       <div style={{ ...cardBase, marginBottom: 14 }}>
         <div style={{ ...titleStyle, fontSize: 11, color: "#9bb2d1", marginBottom: 4 }}>Pro tip</div>
         <div style={bodyStyle}>
-          Estimator unlocks all 8 systems, custom builders, and full order history — you&apos;re already building smarter material lists.
+          Calculator unlocks all 8 systems, custom builders, and full order history — you&apos;re already building smarter material lists.
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <button type="button" style={ctaBtn} onClick={onUpgrade}>
-            → Upgrade to Estimator
+            → Upgrade to Calculator
           </button>
           <button
             type="button"

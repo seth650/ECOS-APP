@@ -9,8 +9,8 @@ function getStripe() {
 }
 
 /**
- * Body: { product?: "estimator" | "calculator" | "tier1" | "tier2" }
- * Default: estimator ($49).
+ * Body: { product?: "calculator" | "estimator" | "tier1" | "tier2" }
+ * Default: calculator ($49).
  */
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -36,26 +36,26 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "Invalid or expired session." });
     }
 
-    const requested = String(req.body?.product || "estimator").toLowerCase();
-    const isCalculator =
-      requested === "calculator" || requested === "tier2" || requested === "ecos_tier2";
+    const requested = String(req.body?.product || "calculator").toLowerCase();
+    const isEstimator =
+      requested === "estimator" || requested === "tier2" || requested === "ecos_tier2";
 
-    const priceId = isCalculator
-      ? process.env.STRIPE_CALCULATOR_PRICE_ID
+    const priceId = isEstimator
+      ? process.env.STRIPE_ESTIMATOR_PRICE_ID || process.env.STRIPE_CALCULATOR_PRICE_ID
       : process.env.STRIPE_PRICE_ID;
     if (!priceId) {
       return res.status(500).json({
-        error: isCalculator
-          ? "STRIPE_CALCULATOR_PRICE_ID is not configured."
+        error: isEstimator
+          ? "STRIPE_ESTIMATOR_PRICE_ID (or legacy STRIPE_CALCULATOR_PRICE_ID) is not configured."
           : "STRIPE_PRICE_ID is not configured.",
       });
     }
 
-    const productMeta = isCalculator ? "ecos_tier2" : "ecos_tier1";
-    const productLabel = isCalculator ? "ECOS Calculator" : "ECOS Estimator";
-    const productBlurb = isCalculator
-      ? "ECOS Calculator unlocks Professional Estimates (PDF + JPG), unlimited POs, custom systems, and everything in Estimator."
-      : "ECOS Estimator unlocks all 8 ET flooring systems, custom systems, My Orders, 50 POs/year, and contractor pricing applications.";
+    const productMeta = isEstimator ? "ecos_tier2" : "ecos_tier1";
+    const productLabel = isEstimator ? "ECOS Estimator" : "ECOS Calculator";
+    const productBlurb = isEstimator
+      ? "ECOS Estimator unlocks Professional Estimates (PDF + JPG), unlimited POs, custom systems, and everything in Calculator."
+      : "ECOS Calculator unlocks all 8 ET flooring systems, custom systems, My Orders, 50 POs/year, and contractor pricing applications.";
 
     const { data: profile } = await supabase.from("profiles").select("stripe_customer_id").eq("id", user.id).maybeSingle();
 
@@ -93,7 +93,6 @@ export default async function handler(req, res) {
     try {
       session = await stripe.checkout.sessions.create(sessionParams);
     } catch (stripeErr) {
-      // Older Stripe API versions may reject custom_text — retry without it.
       if (stripeErr?.message?.includes("custom_text") || stripeErr?.code === "parameter_unknown") {
         delete sessionParams.custom_text;
         session = await stripe.checkout.sessions.create(sessionParams);

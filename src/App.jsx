@@ -133,7 +133,7 @@ function materialOrderSearchText(order) {
     .join(" ");
 }
 
-function calculatorOrderSearchText(order) {
+function estimatorOrderSearchText(order) {
   const jobs = Array.isArray(order?.jobs) ? order.jobs : [];
   const jobBits = jobs
     .map((j) =>
@@ -1378,9 +1378,9 @@ export default function App() {
       case "privacy":
         return "← Back to Privacy";
       case "questions":
-        return "← Back to job calculator";
+        return "← Back to job estimator";
       default:
-        return "← Back to job calculator";
+        return "← Back to job estimator";
     }
   }
 
@@ -1393,7 +1393,7 @@ export default function App() {
       return;
     }
     const tier = String(userProfileRef.current?.membership_tier || "free").toLowerCase();
-    // Estimator (tier1) + Calculator (tier2)
+    // Calculator (tier1) + Estimator (tier2)
     if (tier !== "tier1" && tier !== "tier2") {
       setCustomFloorSystems([]);
       setContractorVendors([]);
@@ -1822,7 +1822,7 @@ export default function App() {
     const base = getApiBase();
     setCheckoutOverlay({
       status: "loading",
-      message: "Opening secure Stripe checkout for ECOS Estimator…",
+      message: "Opening secure Stripe checkout for ECOS Calculator…",
     });
     try {
       const res = await fetch(`${base}/api/create-checkout-session`, {
@@ -1831,7 +1831,7 @@ export default function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ product: "estimator" }),
+        body: JSON.stringify({ product: "calculator" }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || res.statusText);
@@ -1859,7 +1859,7 @@ export default function App() {
     const base = getApiBase();
     setCheckoutOverlay({
       status: "loading",
-      message: "Opening secure Stripe checkout for ECOS Calculator…",
+      message: "Opening secure Stripe checkout for ECOS Estimator…",
     });
     try {
       const res = await fetch(`${base}/api/create-checkout-session`, {
@@ -1868,7 +1868,7 @@ export default function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ product: "calculator" }),
+        body: JSON.stringify({ product: "estimator" }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || res.statusText);
@@ -1877,7 +1877,7 @@ export default function App() {
     } catch (e) {
       setCheckoutOverlay({
         status: "error",
-        message: e?.message || "Could not start Calculator checkout. Set STRIPE_CALCULATOR_PRICE_ID on Vercel.",
+        message: e?.message || "Could not start Estimator checkout. Set STRIPE_ESTIMATOR_PRICE_ID (or legacy STRIPE_CALCULATOR_PRICE_ID) on Vercel.",
       });
     }
   }
@@ -1891,7 +1891,7 @@ export default function App() {
     }
     const cid = String(normalizeUserProfile(userProfile || {}).stripe_customer_id || "").trim();
     if (!cid) {
-      window.alert("No Stripe billing profile yet. Complete an Estimator or Calculator subscription checkout first.");
+      window.alert("No Stripe billing profile yet. Complete a Calculator or Estimator subscription checkout first.");
       return;
     }
     const base = getApiBase();
@@ -1924,11 +1924,11 @@ export default function App() {
       setPhase("questions");
       return;
     }
-    if (planId === "tier1" || planId === "estimator") {
+    if (planId === "tier1" || planId === "calculator") {
       await startTier1Checkout();
       return;
     }
-    if (planId === "tier2" || planId === "calculator") {
+    if (planId === "tier2" || planId === "estimator") {
       await startCalculatorCheckout();
       return;
     }
@@ -1943,7 +1943,7 @@ export default function App() {
 
   async function submitContractorPricingApplication() {
     if (membershipTier === "free") {
-      setContractorPricingNotice("Upgrade to Estimator to apply.");
+      setContractorPricingNotice("Upgrade to Calculator to apply.");
       return;
     }
     const { companyName, annualVolume, contactName, contactEmail, contactPhone, notes } = contractorPricingForm;
@@ -2272,7 +2272,7 @@ export default function App() {
       .filter(Boolean)
       .join(" ");
     return poHistory.filter((o) =>
-      haystackIncludes(`${calculatorOrderSearchText(o)} ${profileBits}`, ordersSearchNormalized)
+      haystackIncludes(`${estimatorOrderSearchText(o)} ${profileBits}`, ordersSearchNormalized)
     );
   }, [poHistory, ordersSearchNormalized, userProfile]);
   const combinedOrderLines = results
@@ -2829,7 +2829,7 @@ export default function App() {
     if (poUsage.atLimit) return;
     if (freeSavedJobLimitReached()) {
       const upgrade = window.confirm(
-        `Job limit reached (${MAX_FREE_SAVED_JOBS} saved on Free). Archive older jobs or upgrade to Estimator for unlimited saves.`
+        `Job limit reached (${MAX_FREE_SAVED_JOBS} saved on Free). Archive older jobs or upgrade to Calculator for unlimited saves.`
       );
       if (upgrade) goToPlans("results");
       return;
@@ -3018,7 +3018,7 @@ export default function App() {
     if (!results || !recommendedSystem) return;
     if (orderJobs.length + 1 >= maxActiveJobs) {
       if (membershipTier === "free") {
-        const wantsUpgrade = window.confirm("Upgrade to Estimator for more jobs per PO and unlimited saved jobs.");
+        const wantsUpgrade = window.confirm("Upgrade to Calculator for more jobs per PO and unlimited saved jobs.");
         if (wantsUpgrade) setPhase("plans");
       }
       return;
@@ -3175,7 +3175,7 @@ export default function App() {
   /** Tier 1+ Job Card: checklist, landscape, 2 cards/page (kit sizes from quote / PRODUCTS). */
   function printJobCard(orderRecord) {
     if (membershipTier === "free") {
-      const upgrade = window.confirm("Job Card printing is an Estimator feature. View plans?");
+      const upgrade = window.confirm("Job Card printing is a Calculator feature. View plans?");
       if (upgrade) setPhase("plans");
       return;
     }
@@ -3411,7 +3411,7 @@ export default function App() {
               Epoxy Twins · ECOS
             </div>
             <div style={{ fontSize: 18, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
-              Estimator
+              Calculator
             </div>
             <div style={{ fontSize: 12, color: "#d2def1", lineHeight: 1.5, marginBottom: 14, fontFamily: "'Open Sans', sans-serif" }}>
               {checkoutOverlay.message || "Preparing secure checkout…"}
@@ -3528,7 +3528,7 @@ export default function App() {
                         setHeaderMenuOpen(false);
                         setPhase("orders");
                       }}
-                      title="Upgrade to Estimator for full PO history"
+                      title="Upgrade to Calculator for full PO history"
                     >
                       My Orders 🔒
                     </button>
@@ -3741,9 +3741,9 @@ export default function App() {
                 <button type="button" disabled style={{ ...S.btnSm, opacity: 0.55, cursor: "not-allowed", borderColor: "#6b7280", color: "#9bb2d1" }}>
                   Apply for Contractor Pricing
                 </button>
-                <div style={{ fontSize: 10, color: "#9bb2d1" }}>Upgrade to Estimator to apply</div>
+                <div style={{ fontSize: 10, color: "#9bb2d1" }}>Upgrade to Calculator to apply</div>
                 <button type="button" style={{ ...S.btnSm, borderColor: "#eab308", color: "#f5d676" }} onClick={() => goToPlans(phase)}>
-                  View Estimator plans →
+                  View Calculator plans →
                 </button>
               </div>
             ) : (
@@ -3812,7 +3812,7 @@ export default function App() {
                     fontWeight: 700,
                   }}
                 >
-                  Estimator
+                  Calculator
                 </button>
               </div>
             )}
@@ -3899,7 +3899,7 @@ export default function App() {
                     <button
                       type="button"
                       style={S.btnSm}
-                      title="Area calculator (sq/ft, m², yd²)"
+                      title="Area estimator (sq/ft, m², yd²)"
                       onClick={() => {
                         setCalcValue(sqFt);
                         setCalcUnit("sqft");
@@ -3964,7 +3964,7 @@ export default function App() {
                       }}
                     >
                       {option.label}
-                      {isLockedFinish ? " 🔒 Unlock Estimator" : ""}
+                      {isLockedFinish ? " 🔒 Unlock Calculator" : ""}
                     </button>
                   );
                 })}
@@ -3985,7 +3985,7 @@ export default function App() {
                     </div>
                     <div style={{ fontSize: 13, color: "#d2def1", marginBottom: 10 }}>{recommendedSystem.label}</div>
                     <div style={{ fontSize: 12, color: "#f5d676", marginBottom: 10 }}>
-                      This system requires Estimator. Upgrade to unlock all 8 ET flooring systems.
+                      This system requires Calculator. Upgrade to unlock all 8 ET flooring systems.
                     </div>
                     <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setPhase("plans")}>
                       Upgrade to unlock
@@ -4226,7 +4226,7 @@ export default function App() {
                             </div>
                           )}
                           <div style={{ fontSize: 10, color: isLocked ? "#f5d676" : "#d2def1" }}>
-                            {isLocked ? "🔒 Unlock Estimator" : "Tap to use this system instead"}
+                            {isLocked ? "🔒 Unlock Calculator" : "Tap to use this system instead"}
                           </div>
                         </button>
                       );
@@ -4258,12 +4258,12 @@ export default function App() {
                       }}
                     >
                       <div style={{ fontSize: 12, color: isTier1 ? "#9ca3af" : "#d1d5db", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, lineHeight: 1.4 }}>
-                        Don't like our systems? Build your own — Upgrade to Estimator for custom systems
+                        Don't like our systems? Build your own — Upgrade to Calculator for custom systems
                       </div>
                       <div style={{ fontSize: 10, color: canUpgrade ? "#f5d676" : "#9ca3af", marginTop: 4 }}>
                         {isTier1
-                          ? "🔒 Locked on Free — upgrade to Estimator to unlock"
-                          : "Tap to view Estimator upgrade options →"}
+                          ? "🔒 Locked on Free — upgrade to Calculator to unlock"
+                          : "Tap to view Calculator upgrade options →"}
                       </div>
                     </button>
                   );
@@ -4499,7 +4499,7 @@ export default function App() {
                 {isCustomActive
                   ? "Enter square footage to generate a material list for this custom system."
                   : isRecommendedSystemLocked
-                    ? "This recommendation is locked on Free. Upgrade to Estimator to continue with this system."
+                    ? "This recommendation is locked on Free. Upgrade to Calculator to continue with this system."
                     : "Complete refine answers, basecoat speed (outdoor), and color selection to continue."}
               </div>
             )}
@@ -4759,7 +4759,7 @@ export default function App() {
               </button>
               {membershipTier === "free" ? (
                 <button type="button" style={{ ...S.hookDisabled, width: "100%" }} disabled>
-                  Print Job Card (Upgrade to Estimator)
+                  Print Job Card (Upgrade to Calculator)
                 </button>
               ) : (
                 <button type="button" style={{ ...S.btnSm, width: "100%", borderColor: "#9bb2d1" }} onClick={printJobCardFromQuote}>
@@ -4767,13 +4767,13 @@ export default function App() {
                 </button>
               )}
               {/*
-                ROADMAP — Calculator: CFO-backed profit tool. Inputs: material line list + tier $ from this
+                ROADMAP — Estimator: CFO-backed profit tool. Inputs: material line list + tier $ from this
                 screen (results.orderLines, combinedOrderLines, requiredMaterialTierTotal / costPer ft²), sell price &
-                labor assumptions from Estimator. Output: margin $, margin %, profit per job / consolidated PO.
+                labor assumptions from Calculator. Output: margin $, margin %, profit per job / consolidated PO.
                 Implement calculateJobProfit(...) and enable when currentPlan / subscription includes Estimator.
               */}
               <button type="button" style={{ ...S.hookDisabled, width: "100%" }} disabled>
-                Calculate profit (Upgrade to Calculator)
+                Calculate profit (Upgrade to Estimator)
               </button>
               {membershipTier === "tier1" && poCounterLabel && (
                 <div style={{ fontSize: 11, color: poUsage.atLimit ? "#fca5a5" : poUsage.atWarning ? "#f5d676" : "#9bb2d1", textAlign: "center" }}>
@@ -4784,7 +4784,7 @@ export default function App() {
                 <div style={{ ...S.card, border: "1px solid #e33433", background: "rgba(227, 52, 51, 0.12)", padding: 10 }}>
                   <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 900, marginBottom: 6 }}>PO limit reached</div>
                   <button type="button" style={{ ...S.btnSm, width: "100%", borderColor: "#e33433", color: "#fff" }} onClick={() => setPhase("plans")}>
-                    Upgrade to Calculator for unlimited POs
+                    Upgrade to Estimator for unlimited POs
                   </button>
                 </div>
               )}
@@ -4937,7 +4937,7 @@ export default function App() {
               <div style={{ ...S.card, border: "1px solid #113a72", marginBottom: 12, fontSize: 11, color: "#d2def1", lineHeight: 1.5 }}>
                 Want branded Professional Estimates?{" "}
                 <button type="button" onClick={() => goToPlans("submitted")} style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit", fontWeight: 700 }}>
-                  Upgrade to Calculator — $149/mo
+                  Upgrade to Estimator — $149/mo
                 </button>
               </div>
             )}
@@ -4977,7 +4977,7 @@ export default function App() {
                   style={S.hookDisabled}
                   disabled
                 >
-                  Print Job Card (Upgrade to Estimator)
+                  Print Job Card (Upgrade to Calculator)
                 </button>
               ) : (
                 <button
@@ -5003,7 +5003,7 @@ export default function App() {
                 style={S.hookDisabled}
                 disabled
               >
-                Professional Estimate (Upgrade to Calculator)
+                Professional Estimate (Upgrade to Estimator)
               </button>
               <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => goToPlans("submitted")}>
                 Upgrade Plans
@@ -5092,7 +5092,7 @@ export default function App() {
                     Apply for contractor pricing to get the most out of your account and material pricing.{" "}
                     {membershipTier === "free" ? (
                       <button type="button" onClick={() => goToPlans("account")} style={{ background: "none", border: "none", color: "#f5d676", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit", fontWeight: 700 }}>
-                        Upgrade to Estimator to apply
+                        Upgrade to Calculator to apply
                       </button>
                     ) : (
                       <button
@@ -5203,7 +5203,7 @@ export default function App() {
               {(membershipTier === "free" || membershipTier === "tier1") && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <span style={{ color: "#eab308" }}>🔒</span>
-                  <span style={{ fontSize: 10, color: "#f5d676", fontWeight: 700 }}>Unlock in Calculator</span>
+                  <span style={{ fontSize: 10, color: "#f5d676", fontWeight: 700 }}>Unlock in Estimator</span>
                 </div>
               )}
               <div style={{ display: "grid", gap: 8 }}>
@@ -5285,8 +5285,8 @@ export default function App() {
                             onChange={(e) => setAdminSelfPlanDraft(e.target.value)}
                           >
                             <option value="Free">Free</option>
-                            <option value="Estimator">Estimator ($49/mo)</option>
-                            <option value="Calculator">Calculator ($149/mo)</option>
+                            <option value="Calculator">Calculator ($49/mo)</option>
+                            <option value="Estimator">Estimator ($149/mo)</option>
                           </select>
                         </div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -5557,8 +5557,8 @@ export default function App() {
                                   }
                                 >
                                   <option value="Free">Free</option>
-                                  <option value="Estimator">Estimator ($49/mo)</option>
-                                  <option value="Calculator">Calculator ($149/mo)</option>
+                                  <option value="Calculator">Calculator ($49/mo)</option>
+                                  <option value="Estimator">Estimator ($149/mo)</option>
                                 </select>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -5676,10 +5676,10 @@ export default function App() {
             {membershipTier === "free" ? (
               <div style={{ ...S.card, border: "1px solid #eab308", background: "rgba(234, 179, 8, 0.08)" }}>
                 <div style={{ fontSize: 12, color: "#f5d676", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
-                  PO History (Upgrade to Estimator)
+                  PO History (Upgrade to Calculator)
                 </div>
                 <div style={{ fontSize: 11, color: "#d2def1", marginBottom: 10, lineHeight: 1.45 }}>
-                  Upgrade to Estimator to see your full order history, Job Cards, and 50 POs/year.
+                  Upgrade to Calculator to see your full order history, Job Cards, and 50 POs/year.
                 </div>
                 <div style={{ filter: "blur(3px)", opacity: 0.7, pointerEvents: "none" }}>
                   {(poHistory.slice(0, 3).length ? poHistory.slice(0, 3) : [{ id: "locked1" }, { id: "locked2" }]).map((o, idx) => (
@@ -5694,7 +5694,7 @@ export default function App() {
                   ))}
                 </div>
                 <button type="button" style={{ ...S.btn, marginTop: 12 }} onClick={() => startTier1Checkout()}>
-                  Upgrade to Estimator — $49/mo
+                  Upgrade to Calculator — $49/mo
                 </button>
               </div>
             ) : (
@@ -5771,7 +5771,7 @@ export default function App() {
                 <div style={S.card}>
                   {filteredPoHistory.length === 0 ? (
                     <div style={{ fontSize: 11, color: "#9bb2d1" }}>
-                      {ordersSearchNormalized ? "No calculator POs match your search." : "No submitted calculator POs yet."}
+                      {ordersSearchNormalized ? "No estimator POs match your search." : "No submitted estimator POs yet."}
                     </div>
                   ) : (
                     filteredPoHistory.map((o, i) => (
@@ -5823,10 +5823,10 @@ export default function App() {
             {membershipTier !== "tier1" && membershipTier !== "tier2" ? (
               <div style={{ ...S.card, border: "1px solid #eab308" }}>
                 <div style={{ fontSize: 13, color: "#f5d676", fontWeight: 900, marginBottom: 8 }}>
-                  My Floor Systems is an Estimator feature
+                  My Floor Systems is a Calculator feature
                 </div>
                 <button type="button" style={S.btn} onClick={() => goToPlans("floor-systems")}>
-                  Upgrade to Estimator — $49/mo
+                  Upgrade to Calculator — $49/mo
                 </button>
               </div>
             ) : (
@@ -5948,7 +5948,7 @@ export default function App() {
               </div>
               <div style={{ ...S.cardGold, border: "2px solid #eab308" }}>
                 <div style={{ fontSize: 10, color: "#f5d676", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 6 }}>Recommended</div>
-                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Estimator ($49/mo)</div>
+                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Calculator ($49/mo)</div>
                 <ul style={{ margin: "8px 0 12px 16px", color: "#d2def1", fontSize: 11, lineHeight: 1.5 }}>
                   <li>All 8 ET flooring systems</li>
                   <li>Custom systems builder</li>
@@ -5957,21 +5957,21 @@ export default function App() {
                   <li>Full My Orders + Job Cards</li>
                   <li>Apply for contractor pricing</li>
                 </ul>
-                <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={() => chooseMembershipPlan("estimator")}>
-                  Upgrade to Estimator — $49/mo
+                <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={() => chooseMembershipPlan("calculator")}>
+                  Upgrade to Calculator — $49/mo
                 </button>
               </div>
               <div style={{ ...S.card, border: "1px solid #113a72" }}>
-                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Calculator ($149/mo)</div>
+                <div style={{ fontSize: 16, color: "#fff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900 }}>Estimator ($149/mo)</div>
                 <ul style={{ margin: "8px 0 12px 16px", color: "#d2def1", fontSize: 11, lineHeight: 1.5 }}>
-                  <li>Everything in Estimator</li>
+                  <li>Everything in Calculator</li>
                   <li>Professional Estimate export (PDF + JPG)</li>
                   <li>Brand colors + logo on estimates</li>
                   <li>Unlimited POs / year</li>
                   <li>Pricing guide + margin on contractor view</li>
                 </ul>
-                <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => chooseMembershipPlan("calculator")}>
-                  Upgrade to Calculator — $149/mo
+                <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => chooseMembershipPlan("estimator")}>
+                  Upgrade to Estimator — $149/mo
                 </button>
               </div>
             </div>
