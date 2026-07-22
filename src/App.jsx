@@ -161,10 +161,10 @@ function getAnniversaryWindowStart(anniversaryIso) {
 
 // ─── TIER MULTIPLIERS ────────────────────────────────────────────────────────
 const TIERS = {
-  msrp:      { label: "MSRP Only",         mult: 1.00 },
-  small:     { label: "Small Buyer",       mult: 0.95 },
-  tier2:     { label: "Tier 2 / Contractor", mult: 0.90 },
-  preferred: { label: "Preferred Partner", mult: 0.85 },
+  msrp:      { label: "MSRP Only (0% off)",              mult: 1.00 },
+  small:     { label: "Small Buyer (5% off)",            mult: 0.95 },
+  tier2:     { label: "Tier 2 / Contractor (10% off)",   mult: 0.90 },
+  preferred: { label: "Preferred Partner (15% off)",     mult: 0.85 },
 };
 
 // Pigments / tools / accessories follow the secondary-sheet structure:
@@ -232,7 +232,7 @@ function normalizeUserProfile(raw) {
   if (p.isFgpCustomer === undefined) p.isFgpCustomer = false;
   if (p.contractorPricingApplicationReceived === undefined) p.contractorPricingApplicationReceived = false;
   if (p.fgpContractorPricingApproved === undefined) p.fgpContractorPricingApproved = false;
-  if (p.needsAdminReview === undefined) p.needsAdminReview = true;
+  if (p.needsAdminReview === undefined) p.needsAdminReview = false;
   if (p.ecosPricingAdmin === undefined) p.ecosPricingAdmin = false;
   if (!p.membership_tier) p.membership_tier = tierTagToMembershipTier(p.plan || "Free");
   const poFields = normalizePoProfileFields(p);
@@ -245,6 +245,7 @@ function normalizeUserProfile(raw) {
   if (!p.brand_color_secondary) p.brand_color_secondary = "#e33433";
   if (p.total_pos_value_this_quarter === undefined) p.total_pos_value_this_quarter = 0;
   if (p.total_pos_value_this_year === undefined) p.total_pos_value_this_year = 0;
+  // Display-only defaults (NOT written to Supabase — see pickWritableProfileFields)
   if (!p.billing_last4) p.billing_last4 = "";
   if (!Array.isArray(p.billing_history)) p.billing_history = [];
   if (p.stripe_customer_id === undefined || p.stripe_customer_id === null) p.stripe_customer_id = "";
@@ -255,6 +256,43 @@ function normalizeUserProfile(raw) {
   if (p.grace_email_stage === undefined || p.grace_email_stage === null) p.grace_email_stage = 0;
   if (p.contractor_tier === undefined || p.contractor_tier === null) p.contractor_tier = "";
   return p;
+}
+
+/**
+ * Only columns that exist on public.profiles and are safe for client updates.
+ * Prevents schema-cache errors from UI-only fields (billing_last4, billing_history, etc.).
+ */
+function pickWritableProfileFields(fields = {}) {
+  const ALLOWED = new Set([
+    "first_name",
+    "last_name",
+    "company_name",
+    "email",
+    "membership_tier",
+    "assignedPricingTierKey",
+    "contractor_tier",
+    "isFgpCustomer",
+    "contractorPricingApplicationReceived",
+    "fgpContractorPricingApproved",
+    "needsAdminReview",
+    "ecosPricingAdmin",
+    "signup_anniversary_date",
+    "po_year_start_date",
+    "annual_po_count",
+    "pos_submitted_this_year",
+    "logo_url",
+    "brand_color_primary",
+    "brand_color_secondary",
+    "total_pos_value_this_quarter",
+    "total_pos_value_this_year",
+  ]);
+  const out = {};
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (!ALLOWED.has(key)) continue;
+    if (value === undefined) continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 function getUserDisplayName(email, profile = {}) {
@@ -1436,29 +1474,27 @@ export default function App() {
     const email = String(targetEmail || "").trim().toLowerCase();
     if (!email) return false;
     const current = normalizeUserProfile(allProfilesByEmail[email] || {});
-    const next = {
+    const mergedLocal = {
       ...current,
       ...updates,
       needsAdminReview: updates.needsAdminReview ?? false,
     };
-    const {
-      billing_history: _billingHistory,
-      stripe_customer_id: _sc,
-      stripe_subscription_id: _ss,
-      subscription_status: _ssu,
-      subscription_current_period_end: _spe,
-      grace_period_start: _gps,
-      grace_email_stage: _ges,
-      ...nextForSave
-    } = next;
+    const nextForSave = pickWritableProfileFields(mergedLocal);
+    if (!Object.keys(nextForSave).length) {
+      window.alert("Nothing to save.");
+      return false;
+    }
     const { error } = await supabase.from("profiles").update(nextForSave).eq("email", email);
     if (error) {
       window.alert(error.message || "Profile update failed.");
       return false;
     }
-    setAllProfilesByEmail((prev) => ({ ...prev, [email]: normalizeUserProfile(next) }));
+    setAllProfilesByEmail((prev) => ({ ...prev, [email]: normalizeUserProfile(mergedLocal) }));
     if (email === currentUser) {
-      setUserProfile(normalizeUserProfile(next));
+      setUserProfile(normalizeUserProfile(mergedLocal));
+      setAssignedPricingTierKey(mergedLocal.assignedPricingTierKey || "msrp");
+      setContractorPricingTierKey(getEffectiveContractorPricingTierKey(mergedLocal));
+      setCurrentPlan(membershipTierToPlanTag(mergedLocal.membership_tier || "free"));
     }
     setProfileVersion((v) => v + 1);
     return true;
@@ -1607,10 +1643,15 @@ export default function App() {
 
   async function saveContractorAdminPanel() {
     if (!selectedContractorEmail || !contractorAdminDraft) return;
+    const assigned = contractorAdminDraft.assignedPricingTierKey || "msrp";
+    const pricingReceived = !!contractorAdminDraft.contractorPricingApplicationReceived;
+    const isFgp = !!contractorAdminDraft.isFgpCustomer;
     const ok = await updateProfileByEmail(selectedContractorEmail, {
-      isFgpCustomer: contractorAdminDraft.isFgpCustomer,
-      contractorPricingApplicationReceived: contractorAdminDraft.contractorPricingApplicationReceived,
-      assignedPricingTierKey: contractorAdminDraft.assignedPricingTierKey,
+      isFgpCustomer: isFgp,
+      contractorPricingApplicationReceived: pricingReceived,
+      assignedPricingTierKey: assigned,
+      contractor_tier: assigned === "msrp" ? "" : assigned,
+      fgpContractorPricingApproved: isFgp && pricingReceived && assigned !== "msrp",
       membership_tier: tierTagToMembershipTier(contractorAdminDraft.planTag),
       needsAdminReview: false,
     });
@@ -1622,10 +1663,15 @@ export default function App() {
 
   async function saveContractorAndReturnToOrdering() {
     if (!selectedContractorEmail || !contractorAdminDraft) return;
+    const assigned = contractorAdminDraft.assignedPricingTierKey || "msrp";
+    const pricingReceived = !!contractorAdminDraft.contractorPricingApplicationReceived;
+    const isFgp = !!contractorAdminDraft.isFgpCustomer;
     const ok = await updateProfileByEmail(selectedContractorEmail, {
-      isFgpCustomer: contractorAdminDraft.isFgpCustomer,
-      contractorPricingApplicationReceived: contractorAdminDraft.contractorPricingApplicationReceived,
-      assignedPricingTierKey: contractorAdminDraft.assignedPricingTierKey,
+      isFgpCustomer: isFgp,
+      contractorPricingApplicationReceived: pricingReceived,
+      assignedPricingTierKey: assigned,
+      contractor_tier: assigned === "msrp" ? "" : assigned,
+      fgpContractorPricingApproved: isFgp && pricingReceived && assigned !== "msrp",
       membership_tier: tierTagToMembershipTier(contractorAdminDraft.planTag),
       needsAdminReview: false,
     });
@@ -1654,7 +1700,7 @@ export default function App() {
       isFgpCustomer: existing.isFgpCustomer ?? false,
       contractorPricingApplicationReceived: existing.contractorPricingApplicationReceived ?? false,
       ecosPricingAdmin: existing.ecosPricingAdmin ?? false,
-      needsAdminReview: existing.needsAdminReview ?? true,
+      needsAdminReview: existing.needsAdminReview ?? false,
       signup_anniversary_date: existing.signup_anniversary_date || new Date().toISOString(),
       po_year_start_date: existing.po_year_start_date || existing.signup_anniversary_date || new Date().toISOString(),
       annual_po_count: existing.annual_po_count ?? existing.pos_submitted_this_year ?? 0,
@@ -1766,14 +1812,7 @@ export default function App() {
 
   async function updateProfileFields(fields) {
     if (!session?.user?.id) return;
-    const safeFields = { ...(fields || {}) };
-    delete safeFields.billing_history;
-    delete safeFields.stripe_customer_id;
-    delete safeFields.stripe_subscription_id;
-    delete safeFields.subscription_status;
-    delete safeFields.subscription_current_period_end;
-    delete safeFields.grace_period_start;
-    delete safeFields.grace_email_stage;
+    const safeFields = pickWritableProfileFields(fields);
     if (!Object.keys(safeFields).length) return;
     const { data, error } = await supabase
       .from("profiles")
@@ -1822,6 +1861,7 @@ export default function App() {
     const base = getApiBase();
     setCheckoutOverlay({
       status: "loading",
+      product: "calculator",
       message: "Opening secure Stripe checkout for ECOS Calculator…",
     });
     try {
@@ -1840,6 +1880,7 @@ export default function App() {
     } catch (e) {
       setCheckoutOverlay({
         status: "error",
+        product: "calculator",
         message: e?.message || "Could not start checkout. Is the API deployed (Vercel) and env vars set?",
       });
     }
@@ -1859,6 +1900,7 @@ export default function App() {
     const base = getApiBase();
     setCheckoutOverlay({
       status: "loading",
+      product: "estimator",
       message: "Opening secure Stripe checkout for ECOS Estimator…",
     });
     try {
@@ -1877,7 +1919,8 @@ export default function App() {
     } catch (e) {
       setCheckoutOverlay({
         status: "error",
-        message: e?.message || "Could not start Estimator checkout. Set STRIPE_ESTIMATOR_PRICE_ID (or legacy STRIPE_CALCULATOR_PRICE_ID) on Vercel.",
+        product: "estimator",
+        message: e?.message || "Could not start Estimator checkout. Set STRIPE_ESTIMATOR_PRICE_ID (or legacy STRIPE_CALCULATOR_PRICE_ID) on Vercel, and ensure the Stripe product is Active.",
       });
     }
   }
@@ -1979,8 +2022,6 @@ export default function App() {
       if (!res.ok) throw new Error(json?.error || "Could not submit application.");
       await updateProfileFields({
         contractorPricingApplicationReceived: true,
-        contractor_pricing_application_pending: true,
-        contractor_pricing_applied_at: json.submittedAt || new Date().toISOString(),
         needsAdminReview: true,
       });
       setContractorPricingNotice("Application Pending — we'll review within 48 hours.");
@@ -3411,7 +3452,7 @@ export default function App() {
               Epoxy Twins · ECOS
             </div>
             <div style={{ fontSize: 18, color: "#ffffff", fontFamily: "'Montserrat', sans-serif", fontWeight: 900, marginBottom: 8 }}>
-              Calculator
+              {checkoutOverlay.product === "estimator" ? "Estimator" : "Calculator"}
             </div>
             <div style={{ fontSize: 12, color: "#d2def1", lineHeight: 1.5, marginBottom: 14, fontFamily: "'Open Sans', sans-serif" }}>
               {checkoutOverlay.message || "Preparing secure checkout…"}
@@ -3423,7 +3464,13 @@ export default function App() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ color: "#fca5a5", fontSize: 11, marginBottom: 4 }}>{checkoutOverlay.message}</div>
-                <button type="button" style={{ ...S.btn, width: "100%", marginTop: 0 }} onClick={() => startTier1Checkout()}>
+                <button
+                  type="button"
+                  style={{ ...S.btn, width: "100%", marginTop: 0 }}
+                  onClick={() =>
+                    checkoutOverlay.product === "estimator" ? startCalculatorCheckout() : startTier1Checkout()
+                  }
+                >
                   Try again
                 </button>
                 <button type="button" style={{ ...S.btnSm, width: "100%" }} onClick={() => setCheckoutOverlay(null)}>
@@ -5530,7 +5577,9 @@ export default function App() {
                                 </div>
                               </div>
                               <div>
-                                <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>Assigned buying tier</div>
+                                <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>
+                                  Assigned buying tier (FGP material discount)
+                                </div>
                                 <select
                                   style={S.input}
                                   value={contractorAdminDraft.assignedPricingTierKey}
@@ -5546,9 +5595,14 @@ export default function App() {
                                     </option>
                                   ))}
                                 </select>
+                                <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 4, lineHeight: 1.4 }}>
+                                  Default for new users: MSRP Only. Discounts apply only when FGP customer = ON and pricing application = YES.
+                                </div>
                               </div>
                               <div>
-                                <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>User access level</div>
+                                <div style={{ fontSize: 10, color: "#9bb2d1", marginBottom: 4 }}>
+                                  App membership (separate from FGP buying tier)
+                                </div>
                                 <select
                                   style={S.input}
                                   value={contractorAdminDraft.planTag}
@@ -5560,6 +5614,9 @@ export default function App() {
                                   <option value="Calculator">Calculator ($49/mo)</option>
                                   <option value="Estimator">Estimator ($149/mo)</option>
                                 </select>
+                                <div style={{ fontSize: 10, color: "#9bb2d1", marginTop: 4, lineHeight: 1.4 }}>
+                                  Controls feature access (systems, My Orders, Professional Estimate) — not material discounts.
+                                </div>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                                 <button type="button" style={S.btn} onClick={saveContractorAdminPanel}>

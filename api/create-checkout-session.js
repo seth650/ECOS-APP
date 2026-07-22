@@ -46,8 +46,8 @@ export default async function handler(req, res) {
     if (!priceId) {
       return res.status(500).json({
         error: isEstimator
-          ? "STRIPE_ESTIMATOR_PRICE_ID (or legacy STRIPE_CALCULATOR_PRICE_ID) is not configured."
-          : "STRIPE_PRICE_ID is not configured.",
+          ? "Estimator price not configured. Set STRIPE_ESTIMATOR_PRICE_ID on Vercel (legacy alias: STRIPE_CALCULATOR_PRICE_ID). In Stripe, ensure the Estimator $149 product + price are Active."
+          : "Calculator price not configured. Set STRIPE_PRICE_ID on Vercel for the Calculator $49 product (must be Active in Stripe).",
       });
     }
 

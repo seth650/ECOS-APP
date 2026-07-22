@@ -10,10 +10,10 @@ export function applyIndianaSalesTax(subtotalAfterDiscount) {
 }
 
 export const MATERIAL_PRICING_TIERS = {
-  small: { label: "Tier 1 — Small Buyer", mainMult: 0.95, ancillaryMult: 1.0 },
-  tier2: { label: "Tier 2 — Contractor", mainMult: 0.9, ancillaryMult: 1.0 },
-  preferred: { label: "Preferred Partner", mainMult: 0.85, ancillaryMult: 0.95 },
-  msrp: { label: "MSRP", mainMult: 1.0, ancillaryMult: 1.0 },
+  msrp: { label: "MSRP Only (0% off)", mainMult: 1.0, ancillaryMult: 1.0 },
+  small: { label: "Small Buyer (5% off)", mainMult: 0.95, ancillaryMult: 1.0 },
+  tier2: { label: "Tier 2 / Contractor (10% off)", mainMult: 0.9, ancillaryMult: 1.0 },
+  preferred: { label: "Preferred Partner (15% off)", mainMult: 0.85, ancillaryMult: 0.95 },
 };
 
 const CONTRACTOR_RANK = { msrp: 0, small: 1, tier2: 2, preferred: 3 };

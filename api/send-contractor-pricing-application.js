@@ -102,15 +102,24 @@ Approve in ECOS Testing Mode / User DB: set FGP customer + pricing application r
   }
 
   const submittedAt = new Date().toISOString();
-  await admin
+  const { error: profileErr } = await admin
     .from("profiles")
     .update({
       contractorPricingApplicationReceived: true,
-      contractor_pricing_application_pending: true,
-      contractor_pricing_applied_at: submittedAt,
       needsAdminReview: true,
     })
     .eq("id", user.id);
+
+  if (profileErr) {
+    console.error("[contractor-pricing-app] profile update", profileErr);
+    // Email already sent — still return success but warn so admin can flag manually
+    return res.status(200).json({
+      ok: true,
+      message: "Application emailed, but profile flag update failed. Tell Seth to mark Pricing application received = YES.",
+      submittedAt,
+      profileWarning: profileErr.message,
+    });
+  }
 
   return res.status(200).json({
     ok: true,
